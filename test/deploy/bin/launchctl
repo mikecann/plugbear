@@ -1,0 +1,86 @@
+#!/bin/bash
+# A fake launchctl for test/deploy/run.sh: bootstrap, bootout, kickstart
+# and print for LaunchAgents under $HOME, starting the plist's program as a
+# plain background process. Never touches the real launchd.
+set -euo pipefail
+state="$HOME/.fake-launchd"
+mkdir -p "$state"
+
+label_of() { printf '%s\n' "${1##*/}"; }
+
+running_pid() {
+  local pid
+  pid="$(cat "$state/$1.pid" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then printf '%s\n' "$pid"; fi
+}
+
+stop() {
+  local pid
+  pid="$(running_pid "$1")"
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
+    for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  fi
+  rm -f "$state/$1.pid"
+}
+
+start() {
+  local label="$1" plist="$HOME/Library/LaunchAgents/$1.plist"
+  local -a args envs
+  local out
+  # A test can make the next start crash, like a broken release would.
+  if [ -f "$state/break-next" ]; then
+    rm -f "$state/break-next"
+    (exit 1) &
+    echo $! >"$state/$label.pid"
+    return 0
+  fi
+  while IFS= read -r -d '' word; do args+=("$word"); done < <(
+    plutil -convert json -o - "$plist" | /usr/bin/python3 -c 'import json,sys; p=json.load(sys.stdin); sys.stdout.write("\0".join(p["ProgramArguments"])+"\0")')
+  while IFS= read -r -d '' word; do envs+=("$word"); done < <(
+    plutil -convert json -o - "$plist" | /usr/bin/python3 -c 'import json,sys; p=json.load(sys.stdin); e=p.get("EnvironmentVariables",{}); sys.stdout.write("".join(f"{k}={v}\0" for k,v in e.items()))')
+  out="$(plutil -extract StandardOutPath raw -o - "$plist")"
+  mkdir -p "$(dirname "$out")"
+  # CONNECTORS_SENTRY=0: the plist turns Sentry on, but a test must never report.
+  (cd "$HOME" && exec env -i "HOME=$HOME" "${envs[@]}" CONNECTORS_SENTRY=0 "${args[@]}" >>"$out" 2>&1 </dev/null) &
+  echo $! >"$state/$label.pid"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  print)
+    label="$(label_of "$2")"
+    [ -f "$state/$label.loaded" ] || { echo "Could not find service \"$label\"" >&2; exit 113; }
+    pid="$(running_pid "$label")"
+    if [ -n "$pid" ]; then printf '%s = {\n\tstate = running\n\tpid = %s\n}\n' "$label" "$pid"; else printf '%s = {\n\tstate = not running\n}\n' "$label"; fi
+    ;;
+  bootstrap)
+    label="$(basename "$3" .plist)"
+    [ ! -f "$state/$label.loaded" ] || { echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; }
+    # A test can make the next N bootstraps fail, as launchd sometimes does
+    # right after a bootout.
+    failures="$(cat "$state/fail-bootstrap" 2>/dev/null || echo 0)"
+    if [ "$failures" -gt 0 ]; then
+      echo $((failures - 1)) >"$state/fail-bootstrap"
+      echo "Bootstrap failed: 5: Input/output error" >&2
+      exit 5
+    fi
+    touch "$state/$label.loaded"
+    start "$label"
+    ;;
+  bootout)
+    label="$(label_of "$2")"
+    stop "$label"
+    rm -f "$state/$label.loaded"
+    ;;
+  kickstart)
+    label="$(label_of "${!#}")"
+    [ -f "$state/$label.loaded" ] || exit 113
+    stop "$label"
+    start "$label"
+    ;;
+  *)
+    echo "fake launchctl: unsupported $*" >&2
+    exit 1
+    ;;
+esac

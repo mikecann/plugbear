@@ -1,0 +1,5 @@
+#!/bin/bash
+# Stands in for ssh in the local-mode part of test/deploy/run.sh, where
+# deploy.sh must not use ssh at all.
+echo "no-ssh: a deploy to this Mac used ssh ($*)" >&2
+exit 255

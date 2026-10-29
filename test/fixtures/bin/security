@@ -1,0 +1,60 @@
+#!/bin/bash
+# A stand-in for /usr/bin/security for tests: a tab-separated file at
+# $FAKE_KEYCHAIN instead of the login Keychain. Handles the commands
+# install-clients.sh and headers.sh use, including `security -i`.
+set -u
+store="${FAKE_KEYCHAIN:?FAKE_KEYCHAIN is not set}"
+touch "$store"
+
+run() {
+  local cmd="$1"
+  shift
+  local service="" account="" password="" show=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -s) service="$2"; shift ;;
+      -a) account="$2"; shift ;;
+      -w)
+        if [ $# -gt 1 ]; then password="$2"; shift; else show=1; fi
+        ;;
+      -U) ;;
+    esac
+    shift
+  done
+  case "$cmd" in
+    find-generic-password)
+      local line
+      line="$(awk -F '\t' -v s="$service" -v a="$account" '$1 == s && $2 == a' "$store" | tail -1)"
+      if [ -z "$line" ]; then
+        echo "security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain." >&2
+        return 44
+      fi
+      if [ "$show" = 1 ]; then printf '%s\n' "$(printf '%s' "$line" | cut -f3)"; fi
+      return 0
+      ;;
+    add-generic-password)
+      awk -F '\t' -v s="$service" -v a="$account" '!($1 == s && $2 == a)' "$store" >"$store.tmp"
+      printf '%s\t%s\t%s\n' "$service" "$account" "$password" >>"$store.tmp"
+      mv "$store.tmp" "$store"
+      return 0
+      ;;
+    delete-generic-password)
+      awk -F '\t' -v s="$service" -v a="$account" '!($1 == s && $2 == a)' "$store" >"$store.tmp"
+      mv "$store.tmp" "$store"
+      return 0
+      ;;
+  esac
+  echo "fake security: unsupported $cmd" >&2
+  return 1
+}
+
+if [ "${1:-}" = "-i" ]; then
+  status=0
+  while read -r -a words; do
+    [ ${#words[@]} -gt 0 ] || continue
+    run "${words[@]}" || status=$?
+  done
+  exit "$status"
+fi
+echo "security $*" | sed -E 's/(-w) [^ ]+/\1 [hidden]/' >>"$store.argv"
+run "$@"

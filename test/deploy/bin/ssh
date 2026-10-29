@@ -1,0 +1,26 @@
+#!/bin/bash
+# Stands in for ssh in test/deploy/run.sh. It runs the "remote" command on
+# this Mac, in $FAKE_REMOTE_HOME, with fake launchctl and tailscale, so the
+# deploy script can be tested end to end without another machine.
+set -euo pipefail
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o | -i | -l | -p | -F) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+host="${1:-}"
+shift || true
+if [ "$host" != "fake-gateway" ]; then
+  echo "fake ssh only knows fake-gateway, not '$host'" >&2
+  exit 255
+fi
+here="$(cd "$(dirname "$0")" && pwd -P)"
+export HOME="${FAKE_REMOTE_HOME:?FAKE_REMOTE_HOME is not set}"
+export CONNECTORS_LAUNCHCTL="$here/launchctl"
+export CONNECTORS_TAILSCALE="$here/tailscale"
+export PATH="$here:/usr/bin:/bin:/usr/sbin:/sbin"
+cd "$HOME"
+# Like sshd: the words are joined and the remote shell parses them.
+exec /bin/sh -c "$*"

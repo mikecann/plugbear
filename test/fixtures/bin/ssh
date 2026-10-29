@@ -1,0 +1,4 @@
+#!/bin/bash
+# Refuses to run: install-clients tests must use CONNECTORS_CLI.
+echo "fake ssh: tests must not reach a real host ($*)" >&2
+exit 255

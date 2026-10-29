@@ -1,0 +1,12 @@
+#!/bin/bash
+# A stand-in for the grok CLI. `grok mcp list --json` prints the config, so
+# the caller's check that its URL is in there works, unless FAKE_GROK_REJECT
+# is set.
+printf 'grok %s\n' "$*" >>"${FAKE_CLIENT_LOG:?}"
+if [ "${1:-}" = mcp ] && [ "${2:-}" = list ]; then
+  if [ -n "${FAKE_GROK_REJECT:-}" ]; then
+    echo "No MCP servers configured."
+    exit 0
+  fi
+  cat "${GROK_HOME:-$HOME/.grok}/config.toml"
+fi

@@ -1,0 +1,41 @@
+{
+  "name": "connectors",
+  "version": "0.1.0",
+  "description": "One MCP gateway for every agent: signs in to each service once, with approvals and a call log.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "bin": {
+    "connectors": "dist/connectors.mjs"
+  },
+  "scripts": {
+    "build": "esbuild connectors=src/cli.ts google-mcp=src/google/server.ts --bundle --platform=node --format=esm --target=node26 --outdir=dist --out-extension:.js=.mjs --legal-comments=none --banner:js=\"#!/usr/bin/env node\nimport { createRequire as __connectorsCreateRequire } from 'node:module'; const require = __connectorsCreateRequire(import.meta.url);\"",
+    "typecheck": "tsc -p .",
+    "test": "node --test --test-reporter=spec \"src/**/*.test.ts\" \"test/*.test.ts\"",
+    "test:clients": "node test/clients/run.ts",
+    "test:deploy": "bash test/deploy/run.sh",
+    "dev": "node src/cli.ts serve",
+    "lint:sh": "npx -y shellcheck -x scripts/*.sh test/deploy/run.sh test/deploy/bin/* test/fixtures/bin/*",
+    "check": "npm run typecheck && npm test && npm run build",
+    "test:browser": "node --test --test-reporter=spec \"test/browser/*.test.ts\""
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@sentry/node": "11.10.0",
+    "hono": "^4.13.14",
+    "undici": "^8.12.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.64.1",
+    "typescript": "^7.0.2"
+  }
+}

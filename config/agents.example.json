@@ -1,0 +1,4 @@
+[
+  { "id": "claude", "title": "Claude Code", "upstreams": ["*"], "client": { "type": "claude" } },
+  { "id": "codex", "title": "Codex", "upstreams": ["*"], "client": { "type": "codex" } }
+]

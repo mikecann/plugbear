@@ -1,0 +1,4 @@
+#!/bin/bash
+# A stand-in for the claude CLI: records `claude mcp ...` calls and which
+# config folder they were for in $FAKE_CLIENT_LOG.
+printf 'claude dir=%s %s\n' "${CLAUDE_CONFIG_DIR:-<unset>}" "$*" >>"${FAKE_CLIENT_LOG:?}"

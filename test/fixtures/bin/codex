@@ -1,0 +1,10 @@
+#!/bin/bash
+# A stand-in for the codex CLI. `codex mcp get connectors --json` prints the
+# config, so the caller's check that its URL is in there works, unless
+# FAKE_CODEX_REJECT is set.
+printf 'codex %s\n' "$*" >>"${FAKE_CLIENT_LOG:?}"
+if [ -n "${FAKE_CODEX_REJECT:-}" ]; then
+  echo "Error: invalid configuration" >&2
+  exit 1
+fi
+cat "${CODEX_HOME:-$HOME/.codex}/config.toml"

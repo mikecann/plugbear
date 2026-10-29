@@ -1,0 +1,54 @@
+[
+  {
+    "id": "notion",
+    "title": "Notion",
+    "prefix": "notion",
+    "type": "http",
+    "url": "https://mcp.notion.com/mcp",
+    "auth": { "type": "oauth" }
+  },
+  {
+    "id": "deepwiki",
+    "title": "DeepWiki",
+    "prefix": "deepwiki",
+    "type": "http",
+    "url": "https://mcp.deepwiki.com/mcp",
+    "auth": { "type": "none" }
+  },
+  {
+    "id": "sentry",
+    "title": "Sentry",
+    "prefix": "sentry",
+    "type": "http",
+    "url": "https://mcp.sentry.dev/mcp",
+    "auth": { "type": "oauth" },
+    "enabled": false
+  },
+  {
+    "id": "cloudflare",
+    "title": "Cloudflare",
+    "prefix": "cf",
+    "type": "http",
+    "url": "https://mcp.cloudflare.com/mcp",
+    "auth": { "type": "oauth" },
+    "enabled": false
+  },
+  {
+    "id": "gmail",
+    "title": "Gmail",
+    "prefix": "gmail",
+    "type": "google",
+    "service": "gmail",
+    "account": "google",
+    "enabled": false
+  },
+  {
+    "id": "gcal",
+    "title": "Google Calendar",
+    "prefix": "gcal",
+    "type": "google",
+    "service": "calendar",
+    "account": "google",
+    "enabled": false
+  }
+]

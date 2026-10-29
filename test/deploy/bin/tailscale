@@ -1,0 +1,23 @@
+#!/bin/bash
+# A fake Tailscale CLI for test/deploy/run.sh: `serve status --json` and
+# `serve --bg --https=<port> <target>`, kept in $HOME/.fake-tailscale.json.
+# Every `serve --bg` is also counted in $HOME/.fake-tailscale-serves.
+set -euo pipefail
+file="$HOME/.fake-tailscale.json"
+if [ "${1:-}" = serve ] && [ "${2:-}" = status ]; then
+  # A test can make it fail, like a stopped Tailscale app would.
+  if [ -f "$HOME/.fake-tailscale-status-fails" ]; then
+    echo "failed to connect to local Tailscale daemon" >&2
+    exit 1
+  fi
+  cat "$file" 2>/dev/null || echo '{}'
+  exit 0
+fi
+if [ "${1:-}" = serve ] && [ "${2:-}" = --bg ]; then
+  echo "$*" >>"$HOME/.fake-tailscale-serves"
+  port="${3#--https=}"
+  printf '{"Web":{"fake-gateway.example.ts.net:%s":{"Handlers":{"/":{"Proxy":"%s"}}}}}\n' "$port" "$4" >"$file"
+  exit 0
+fi
+echo "fake tailscale: unsupported $*" >&2
+exit 1

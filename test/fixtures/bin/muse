@@ -1,0 +1,2 @@
+#!/bin/bash
+printf 'muse %s\n' "$*" >>"${FAKE_CLIENT_LOG:?}"

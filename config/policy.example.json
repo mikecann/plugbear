@@ -1,0 +1,15 @@
+{
+  "default": "allow",
+  "rules": [
+    { "tool": "*__*send*", "action": "ask" },
+    { "tool": "*__*reply*", "action": "ask" },
+    { "tool": "*__*forward*", "action": "ask" },
+    { "tool": "*__*post_message*", "action": "ask" },
+    { "tool": "*__*delete*", "action": "ask" },
+    { "tool": "*__*trash*", "action": "ask" },
+    { "tool": "*__*share*", "action": "ask" },
+    { "tool": "*__*permission*", "action": "ask" },
+    { "tool": "*__*invite*", "action": "ask" },
+    { "tool": "gcal__*event*", "ifArgs": ["attendees"], "action": "ask" }
+  ]
+}

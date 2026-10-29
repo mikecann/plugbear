@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The Connectors LaunchAgent. scripts/deploy.sh renders {{HOME}} (the home
+  folder of the user it runs as, since launchd doesn't expand ~) and
+  {{LABEL}} (launchdLabel in settings.json, local.connectors by default),
+  and installs it as ~/Library/LaunchAgents/<label>.plist.
+
+  `app` is a symlink to the live release and `app/bin/node` a symlink to the
+  pinned official Node, so this file doesn't change between deploys and
+  `launchctl kickstart -k gui/$(id -u)/<label>` restarts it on whatever
+  release `app` names.
+
+  Everything else (mode, port, public URL, admin logins) comes from
+  <data folder>/config/settings.json, so it isn't repeated here. The
+  gateway listens on 127.0.0.1 only; in tailscale mode `tailscale serve`
+  publishes it on the tailnet.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{{LABEL}}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{HOME}}/Library/Application Support/Connectors/app/bin/node</string>
+    <!-- A leak should restart the gateway, not squeeze whatever else the
+         machine runs. -->
+    <string>--max-old-space-size=384</string>
+    <string>{{HOME}}/Library/Application Support/Connectors/app/dist/connectors.mjs</string>
+    <string>serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Lets the gateway report its own bugs to Sentry, if settings.json
+         has a sentryDsn (src/sentry.ts). Only this plist sets it, so tests
+         and dev runs never report. -->
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>CONNECTORS_HOME</key>
+    <string>{{HOME}}/Library/Application Support/Connectors</string>
+    <!-- stdio upstreams inherit this PATH; their commands come from
+         upstreams.json only. -->
+    <key>PATH</key>
+    <string>{{HOME}}/Library/Application Support/Connectors/app/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>{{HOME}}/Library/Application Support/Connectors</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Standard</string>
+  <key>Umask</key>
+  <integer>63</integer>
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/Library/Logs/connectors.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/Library/Logs/connectors.log</string>
+</dict>
+</plist>
