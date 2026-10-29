@@ -39,6 +39,18 @@ first" for things like sending an email or deleting a page.
 - Agents are told when a service needs signing in, with a link to give you,
   instead of finding nothing.
 
+## Get it
+
+Paste this into your AI coding agent (Claude Code, Codex, Cursor...):
+
+> Fork https://github.com/mikecann/plugboard to my GitHub account and clone my fork
+> (if I don't use GitHub, or want to keep my copy private, just clone it instead),
+> then make it my own. It's one of Mike Cann's personal tools, so read the README
+> first, change anything specific to his setup to suit mine, then help me get it
+> running.
+
+Or set it up by hand with the quick start below.
+
 ## Quick start (one Mac)
 
 You need an Apple silicon Mac and Node.js with npm (any recent version, only
