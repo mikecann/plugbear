@@ -270,6 +270,15 @@ Rules match `<prefix>__<tool>` with the service's own tool name, and can be
 limited with `agents`, `upstreams`, or `ifArgs` (only when one of those
 arguments is set and not empty).
 
+A tool that `deny` refuses whatever the arguments is also left out of the
+agents' tool lists, so it costs their models no context and can't be picked
+by mistake. That makes `deny` a way to trim a big service down to the tools
+you use. Put those rules first, since the first matching rule wins:
+
+```json
+{ "tool": "notion__notion-calendar-*", "action": "deny" }
+```
+
 An `ask` call waits up to 45 seconds. If you approve it in time, the agent
 gets the real result. If not, the agent is told to tell you and then call
 `connectors__await_approval` with the id, which waits up to 45 seconds more

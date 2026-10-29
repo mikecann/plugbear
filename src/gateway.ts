@@ -18,7 +18,7 @@ import { type Logger, errorMessage, silentLogger } from "./log.ts";
 import { type Separator, policyName } from "./naming.ts";
 import type { Notifier } from "./notify.ts";
 import { NeedsSignInError } from "./oauth.ts";
-import { decide, mayAsk } from "./policy.ts";
+import { type PolicyInput, alwaysDenies, decide, mayAsk } from "./policy.ts";
 import { looksLikeBug, reportError } from "./sentry.ts";
 import { type Owner, ownerWords } from "./settings.ts";
 import { type ExposedTool, type UpstreamConnection, type UpstreamManager, showsSignInStub } from "./upstreams.ts";
@@ -243,12 +243,34 @@ export class Gateway {
       // finds out what to ask for instead of finding nothing.
       if (showsSignInStub(connection.state)) tools.push(signInTool(connection, separator, this.owner));
       if (connection.state !== "ready") continue;
-      for (const tool of connection.toolsFor(separator)) {
+      for (const tool of this.visibleTools(agent, connection)) {
         tools.push(this.mayBeHeld(agent, connection, tool) ? withoutOutputSchema(tool) : tool);
       }
     }
     this.log.info(`tools/list agent=${agent.id} tools=${tools.length}`);
     return tools;
+  }
+
+  /**
+   * A connection's tools in the agent's naming, minus the ones the policy
+   * always refuses for it. Every listed tool costs the agent's model context
+   * and is one more to choose from, so a refused tool isn't worth listing.
+   * Calling one by name is still refused in dispatch.
+   */
+  private visibleTools(agent: AgentConfig, connection: UpstreamConnection): ExposedTool[] {
+    return connection
+      .toolsFor(agent.toolSeparator)
+      .filter((tool) => !alwaysDenies(this.deps.config.policy, this.policyTarget(agent, connection, tool)));
+  }
+
+  /** Who and what a policy rule is matched against for this tool. */
+  private policyTarget(agent: AgentConfig, connection: UpstreamConnection, tool: ExposedTool): Omit<PolicyInput, "args"> {
+    const original = connection.originalName(tool.name, agent.toolSeparator) ?? tool.name;
+    return {
+      agentId: agent.id,
+      upstreamId: connection.id,
+      toolName: policyName(connection.config.prefix, original),
+    };
   }
 
   /**
@@ -260,12 +282,7 @@ export class Gateway {
    */
   private mayBeHeld(agent: AgentConfig, connection: UpstreamConnection, tool: ExposedTool): boolean {
     if (!tool.outputSchema) return false;
-    const original = connection.originalName(tool.name, agent.toolSeparator) ?? tool.name;
-    return mayAsk(this.deps.config.policy, {
-      agentId: agent.id,
-      upstreamId: connection.id,
-      toolName: policyName(connection.config.prefix, original),
-    });
+    return mayAsk(this.deps.config.policy, this.policyTarget(agent, connection, tool));
   }
 
   async callTool(ctx: CallContext, name: string, rawArgs: unknown): Promise<ToolResult> {
@@ -552,7 +569,7 @@ export class Gateway {
       const label = `${connection.config.title} (tools start with ${connection.config.prefix}${ctx.agent.toolSeparator})`;
       switch (connection.state) {
         case "ready":
-          return `- ${label}: signed in, ${connection.tools.length} tools`;
+          return `- ${label}: signed in, ${this.visibleTools(ctx.agent, connection).length} tools`;
         case "needs_sign_in":
           return `- ${label}: needs sign-in. Ask ${this.owner.name} to open ${connection.connectUrl}`;
         case "needs_setup":

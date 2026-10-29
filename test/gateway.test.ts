@@ -243,6 +243,18 @@ describe("gateway over /mcp", () => {
     await client.close();
   });
 
+  it("leaves tools the policy always denies out of the list and the status count", async () => {
+    const client = await legacyClient(gateway, "codex");
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    assert.ok(!names.includes("remote__delete_page"));
+    assert.ok(!names.includes("fake__delete_page"));
+    assert.ok(names.includes("remote__echo"));
+    const status = textOf(await client.callTool({ name: "connectors__status", arguments: {} }));
+    // Each fake server has 10 tools, one of them delete_page.
+    assert.match(status, /Remote \(personal\) \(tools start with remote__\): signed in, 9 tools/);
+    await client.close();
+  });
+
   it("runs an ask call when Sam approves within the hold", async () => {
     const client = await modernClient(gateway, "claude-3");
     const before = http.state.sends.length;

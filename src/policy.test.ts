@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import { parsePolicy, type Policy } from "./config.ts";
 import { globMatch } from "./glob.ts";
-import { decide, isNonEmpty, mayAsk } from "./policy.ts";
+import { alwaysDenies, decide, isNonEmpty, mayAsk } from "./policy.ts";
 
 const defaults: Policy = parsePolicy(
   JSON.parse(readFileSync(new URL("../config/policy.example.json", import.meta.url), "utf8")),
@@ -146,6 +146,34 @@ describe("rule matching", () => {
     assert.equal(may("x__update", "grok"), true);
     assert.equal(may("x__update"), false);
     assert.equal(mayAsk(parsePolicy({ default: "ask", rules: [] }), { agentId: "a", upstreamId: "x", toolName: "x__y" }), true);
+  });
+
+  it("knows which tools no arguments could get through", () => {
+    const rules = parsePolicy({
+      default: "allow",
+      rules: [
+        { tool: "x__keep_*", action: "allow" },
+        { tool: "x__*danger*", action: "deny" },
+        { tool: "x__post*", agents: ["grok"], action: "deny" },
+        { tool: "x__force_*", ifArgs: ["force"], action: "deny" },
+        { tool: "x__force_all", action: "deny" },
+        { tool: "x__maybe_*", ifArgs: ["really"], action: "ask" },
+        { tool: "x__maybe_*", action: "deny" },
+      ],
+    });
+    const always = (toolName: string, agentId = "codex") => alwaysDenies(rules, { agentId, upstreamId: "x", toolName });
+    assert.equal(always("x__danger_zone"), true);
+    // An earlier rule without ifArgs settles it.
+    assert.equal(always("x__keep_danger"), false);
+    assert.equal(always("x__post_it", "grok"), true);
+    assert.equal(always("x__post_it"), false);
+    // A deny with ifArgs only covers some calls; the rules after it decide the rest.
+    assert.equal(always("x__force_push"), false);
+    assert.equal(always("x__force_all"), true);
+    // An ifArgs rule with another action lets those calls through.
+    assert.equal(always("x__maybe_drop"), false);
+    assert.equal(always("x__read"), false);
+    assert.equal(alwaysDenies(parsePolicy({ default: "deny", rules: [] }), { agentId: "a", upstreamId: "x", toolName: "x__y" }), true);
   });
 
   it("rejects unknown actions and fields", () => {

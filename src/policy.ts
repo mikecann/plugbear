@@ -67,6 +67,24 @@ export function mayAsk(policy: Policy, input: Omit<PolicyInput, "args">): boolea
   return policy.default === "ask";
 }
 
+/**
+ * Whether the policy refuses this tool whatever the arguments, so it can be
+ * left out of the agent's tool list. A deny rule with ifArgs only covers
+ * some calls, so the rules after it still decide the rest; an ifArgs rule
+ * with another action lets some calls through.
+ */
+export function alwaysDenies(policy: Policy, input: Omit<PolicyInput, "args">): boolean {
+  for (const rule of policy.rules) {
+    if (!ruleTargets(rule, input)) continue;
+    if (rule.ifArgs) {
+      if (rule.action === "deny") continue;
+      return false;
+    }
+    return rule.action === "deny";
+  }
+  return policy.default === "deny";
+}
+
 export function decide(policy: Policy, input: PolicyInput): PolicyDecision {
   for (const [index, rule] of policy.rules.entries()) {
     if (ruleMatches(rule, input)) return { action: rule.action, ruleIndex: index };
