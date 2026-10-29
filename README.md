@@ -1,5 +1,9 @@
 # Plugboard
 
+<a href="docs/media/plugboard.mp4"><img src="docs/media/plugboard.gif" alt="Five agents wired separately to Notion, Gmail, Calendar and Sentry get re-patched through one Plugboard socket, which asks before sending an email" width="720"></a>
+
+<sub>18 s. Click for the video with sound.</sub>
+
 One MCP server for all your agents. Plugboard signs in to each service
 (Notion, Sentry, Cloudflare, Gmail, Google Calendar, DeepWiki, or any MCP
 server you add) once, and gives every agent on your Mac the same URL:
