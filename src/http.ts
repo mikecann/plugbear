@@ -328,7 +328,7 @@ export function createApp(deps: AppDeps): Hono<Env> {
         c,
         messagePage(
           "Open this page from Terminal",
-          `This browser isn't signed in to Connectors yet. Run "connectors open ${path}" on this Mac, which opens it signed in.`,
+          `This browser isn't signed in to PlugBear yet. Run "connectors open ${path}" on this Mac, which opens it signed in.`,
         ),
         401,
       );

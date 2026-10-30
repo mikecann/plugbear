@@ -149,7 +149,7 @@ export function page(title: string, body: Html, options: { section?: Section; wi
 <style>${new Html(STYLE)}</style>
 </head>
 <body>
-<nav><a class="brand" href="/admin">${PLUG}Connectors</a><a class="${here("services")}" href="/admin">Services</a><a class="${here("calls")}" href="/admin/calls">Calls</a><a class="${here("sends")}" href="/admin/calls?view=sends">Sends</a></nav>
+<nav><a class="brand" href="/admin">${PLUG}PlugBear</a><a class="${here("services")}" href="/admin">Services</a><a class="${here("calls")}" href="/admin/calls">Calls</a><a class="${here("sends")}" href="/admin/calls?view=sends">Sends</a></nav>
 <main class="${options.width ?? ""}">${body}</main>
 </body>
 </html>`.value;
@@ -362,7 +362,7 @@ ${view.agents.map(
 <div class="muted small">${row.lastCall ? formatTime(row.lastCall) : "No calls yet"}</div></li>`,
 )}
 </ul>`;
-  return page("Connectors", html`<h1>Connectors</h1>${flash}${pending}${setupSection(view.setup, view.csrf)}${services}${agents}`, { section: "services" });
+  return page("PlugBear", html`<h1>PlugBear</h1>${flash}${pending}${setupSection(view.setup, view.csrf)}${services}${agents}`, { section: "services" });
 }
 
 export type ConnectView = {
@@ -527,7 +527,7 @@ export function messagePage(title: string, text: string): string {
   return page(
     title,
     html`<div class="card panel"><h1>${title}</h1><p class="muted">${text}</p></div>
-<p class="small" style="text-align: center; margin-top: 1.25rem"><a href="/admin">Back to Connectors</a></p>`,
+<p class="small" style="text-align: center; margin-top: 1.25rem"><a href="/admin">Back to PlugBear</a></p>`,
     { width: "narrow" },
   );
 }

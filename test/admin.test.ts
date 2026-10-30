@@ -59,7 +59,7 @@ describe("admin pages", () => {
     // sign-in page; Chrome checks form-action on that redirect.
     assert.match(csp, /form-action 'self' https:/);
     const html = await response.text();
-    assert.match(html, /<h1>Connectors<\/h1>/);
+    assert.match(html, /<h1>PlugBear<\/h1>/);
     assert.match(html, /Fake stdio/);
     assert.match(html, /Connected/);
     assert.match(html, /Claude \(claude-3\)/);
