@@ -1,18 +1,18 @@
-# Plugboard
+# PlugBear
 
-<a href="docs/media/plugboard.mp4"><img src="docs/media/plugboard.gif" alt="Five agents wired separately to Notion, Gmail, Calendar and Sentry get re-patched through one Plugboard socket, which asks before sending an email" width="720"></a>
+<a href="docs/media/plugbear.mp4"><img src="docs/media/plugbear.gif" alt="Five agents wired separately to Notion, Gmail, Calendar and Sentry get re-patched through one PlugBear socket, which asks before sending an email" width="720"></a>
 
 <sub>18 s. Click for the video with sound.</sub>
 
-One MCP server for all your agents. Plugboard signs in to each service
+One MCP server for all your agents. PlugBear signs in to each service
 (Notion, Sentry, Cloudflare, Gmail, Google Calendar, DeepWiki, or any MCP
 server you add) once, and gives every agent on your Mac the same URL:
 Claude Code with as many logins as you have, Codex, Grok, Muse, or anything
 else that speaks MCP over HTTP. Calls that reach other people or can't be
 undone wait for you to approve them first, and every call is logged.
 
-The command, the data folder and the code still use its first name,
-`connectors`.
+It was called Plugboard until 30 Oct 2026. The command, the data folder and
+the code still use its first name, `connectors`.
 
 It runs on macOS, on your own Mac or on another always-on Mac reached over
 Tailscale. It keeps your tokens on that machine; nothing goes through a
@@ -43,7 +43,7 @@ first" for things like sending an email or deleting a page.
 
 Paste this into your AI coding agent (Claude Code, Codex, Cursor...):
 
-> Fork https://github.com/mikecann/plugboard to my GitHub account and clone my fork
+> Fork https://github.com/mikecann/plugbear to my GitHub account and clone my fork
 > (if I don't use GitHub, or want to keep my copy private, just clone it instead),
 > then make it my own. It's one of Mike Cann's personal tools, so read the README
 > first, change anything specific to his setup to suit mine, then help me get it
@@ -58,8 +58,8 @@ to build; the gateway runs on a pinned Node 26 that the installer
 downloads and checks).
 
 ```bash
-git clone https://github.com/mikecann/plugboard.git
-cd plugboard
+git clone https://github.com/mikecann/plugbear.git
+cd plugbear
 scripts/install.sh --owner Sam
 ```
 
