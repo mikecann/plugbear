@@ -20,7 +20,7 @@ import type { McpHttpHandler } from "@modelcontextprotocol/server";
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 
-import { adminPage, approvalPage, callsPage, connectPage, messagePage } from "./admin.ts";
+import { SETUP_SCRIPT_HASH, adminPage, approvalPage, callsPage, connectPage, messagePage } from "./admin.ts";
 import { upstreamsFor } from "./access.ts";
 import type { Approvals } from "./approvals.ts";
 import type { Config } from "./config.ts";
@@ -32,6 +32,7 @@ import { callerAuthInfo } from "./mcp.ts";
 import { readSecretFile, writeSecretFile } from "./secretFiles.ts";
 import { reportError } from "./sentry.ts";
 import type { Mode } from "./settings.ts";
+import { type SetupSummary, setupSteps } from "./setup.ts";
 import { checkUrl } from "./ssrf.ts";
 import type { TokenStore } from "./tokens.ts";
 import type { UpstreamManager } from "./upstreams.ts";
@@ -167,7 +168,12 @@ async function rpcMethods(request: Request): Promise<string> {
  */
 export function contentSecurityPolicy(allowLoopback = false): string {
   const formAction = ["'self'", "https:", ...(allowLoopback ? ["http://127.0.0.1:*", "http://localhost:*"] : [])];
-  return `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction.join(" ")}; frame-ancestors 'none'`;
+  // The one script is the setup checklist's poll, allowed by its hash, and
+  // it only fetches from this origin.
+  return (
+    `default-src 'none'; style-src 'unsafe-inline'; script-src '${SETUP_SCRIPT_HASH}'; connect-src 'self'; ` +
+    `form-action ${formAction.join(" ")}; frame-ancestors 'none'`
+  );
 }
 
 /**
@@ -376,6 +382,44 @@ export function createApp(deps: AppDeps): Hono<Env> {
     return deps.csrf.check(c.get("login"), action, fields.csrf) ? fields : null;
   };
 
+  // Read-only: everything here is already on the admin page.
+  const setupSummary = (): SetupSummary => {
+    const lastCalls = deps.store.lastCallByAgent();
+    return setupSteps({
+      services: deps.manager.all().map((connection) => ({
+        id: connection.id,
+        title: connection.config.title,
+        state: connection.state,
+        signsIn: connection.signsIn,
+        google: connection.config.type === "google",
+        accountEmail: connection.accountEmail,
+        lastError: connection.lastError,
+      })),
+      agents: deps.config.agents.map((agent) => ({
+        id: agent.id,
+        title: agent.title,
+        clientType: agent.client?.type,
+        hasToken: deps.tokens.has(agent.id),
+        lastCall: lastCalls.get(agent.id),
+      })),
+      mcpUrl: new URL("/mcp", deps.publicUrl).toString(),
+    });
+  };
+
+  // Polled by the setup checklist on /admin; same login checks as the page.
+  app.get("/admin/setup.json", (c) => {
+    const setup = setupSummary();
+    return c.json(
+      {
+        heading: setup.heading,
+        todo: setup.todo,
+        steps: setup.steps.map((step) => ({ id: step.id, done: step.done, line: step.line })),
+      },
+      200,
+      { "cache-control": "no-store", "x-content-type-options": "nosniff" },
+    );
+  });
+
   app.get("/admin", (c) => {
     const lastCalls = deps.store.lastCallByAgent();
     const connected = deps.manager.get(c.req.query("connected") ?? "");
@@ -388,6 +432,7 @@ export function createApp(deps: AppDeps): Hono<Env> {
     return htmlResponse(
       c,
       adminPage({
+        setup: setupSummary(),
         connections: deps.manager.all(),
         agents: deps.config.agents.map((agent) => ({
           agent,

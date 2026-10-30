@@ -1,10 +1,13 @@
 // Server-rendered admin and approval pages. Plain copy: no eyebrow or
 // kicker labels and no em dashes.
 
+import { createHash } from "node:crypto";
+
 import { expiredAfterApproval } from "./approvals.ts";
 import type { AgentConfig } from "./config.ts";
 import type { ApprovalRecord, CallRecord } from "./db.ts";
 import { Html, html } from "./html.ts";
+import type { SetupAction, SetupStep, SetupSummary } from "./setup.ts";
 import type { UpstreamConnection, UpstreamState } from "./upstreams.ts";
 
 const dateFormat = new Intl.DateTimeFormat("en-AU", {
@@ -99,6 +102,31 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .decide { padding: 1.25rem; margin-top: 1.25rem; }
 .decide label { color: var(--muted); font-size: 0.85rem; }
 .decide .actions { margin-top: 0.9rem; }
+details.setup { margin-top: 2rem; }
+h1 + details.setup, .flash + details.setup { margin-top: 0; }
+details.setup > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; }
+details.setup > summary::-webkit-details-marker { display: none; }
+details.setup > summary h2 { margin: 0; color: var(--text); }
+details.setup.all-set > summary h2 { color: var(--muted); }
+details.setup > summary .chev { color: var(--muted); font-size: 0.85rem; transition: transform 0.15s; }
+details.setup[open] > summary .chev { transform: rotate(90deg); }
+details.setup:not([open]) > summary { margin-bottom: 0; }
+details.setup > summary .tick { display: none; }
+details.setup.all-set > summary .tick { display: inline-flex; }
+.tick, .check { color: var(--ok); align-items: center; }
+.tick svg { width: 16px; height: 16px; }
+.check svg { width: 20px; height: 20px; }
+.step .step-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; background: var(--bad); transition: background-color 0.25s; }
+.step.done .step-dot { background: var(--ok); }
+.step .check { display: none; }
+.step.done .check { display: inline-flex; }
+.step.done .todo { display: none; }
+a.btn.plain { border: 1px solid var(--line); background: var(--card); color: var(--text); }
+a.btn.plain:hover { background: var(--soft); }
+details.how summary { font-size: 0.9rem; padding: 0.35rem 0.9rem; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+details.how summary:hover { background: var(--soft); }
+details.how .tip { width: min(27rem, 85vw); top: 2.4rem; }
+details.how pre { margin: 0.5rem 0; padding: 0.6rem 0.75rem; white-space: pre; overflow-x: auto; }
 @media (max-width: 640px) { .list > li { flex-wrap: wrap; } table { display: block; overflow-x: auto; } }
 `;
 
@@ -184,7 +212,99 @@ function kindLabel(connection: UpstreamConnection): string {
   return config.auth.type === "none" ? "no sign-in" : config.auth.type;
 }
 
+const CHECK = new Html(
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`,
+);
+
+/**
+ * Flips the setup rows green as steps get done (a sign-in finishing, an
+ * agent being wired from Terminal) by polling /admin/setup.json every few
+ * seconds while anything is still to do. It only touches classes and
+ * textContent. The pages' CSP allows this one script by its hash and
+ * fetches only to this origin.
+ */
+export const SETUP_SCRIPT = `(() => {
+  const box = document.getElementById("setup");
+  if (!box || box.dataset.todo === "0") return;
+  const tick = async () => {
+    try {
+      if (!document.hidden) {
+        const response = await fetch("/admin/setup.json", { cache: "no-store" });
+        if (response.ok) {
+          const setup = await response.json();
+          const steps = new Map(setup.steps.map((step) => [step.id, step]));
+          for (const row of box.querySelectorAll("li[data-step]")) {
+            const step = steps.get(row.dataset.step);
+            if (!step) continue;
+            row.classList.toggle("done", step.done);
+            row.querySelector(".sub").textContent = step.line;
+          }
+          box.querySelector("h2").textContent = setup.heading;
+          box.classList.toggle("all-set", setup.todo === 0);
+          if (setup.todo === 0) return;
+        }
+      }
+    } catch {
+      // Offline or restarting: try again next time.
+    }
+    setTimeout(tick, 3000);
+  };
+  setTimeout(tick, 3000);
+})();`;
+
+export const SETUP_SCRIPT_HASH = `sha256-${createHash("sha256").update(SETUP_SCRIPT).digest("base64")}`;
+
+function setupAction(action: SetupAction | undefined, csrf: Csrf): Html | string {
+  if (!action) return "";
+  switch (action.kind) {
+    case "connect":
+      return postButton(
+        `connect:${action.upstream}`,
+        `/admin/upstreams/${encodeURIComponent(action.upstream)}/connect`,
+        "Connect",
+        csrf,
+        "primary",
+      );
+    case "retry":
+      return postButton(
+        `retry:${action.upstream}`,
+        `/admin/upstreams/${encodeURIComponent(action.upstream)}/retry`,
+        "Try again",
+        csrf,
+      );
+    case "open":
+      return html`<a class="btn plain" href="${action.href}">Open</a>`;
+    case "link":
+      return html`<a class="btn plain" href="${action.href}" target="_blank" rel="noopener noreferrer">${action.label}</a>`;
+    case "command":
+      return html`<details class="info how"><summary>${action.label}</summary><div class="tip">${action.note}
+<pre>${action.command}</pre><a href="${action.href}" target="_blank" rel="noopener noreferrer">More in the README</a></div></details>`;
+  }
+}
+
+function setupRow(step: SetupStep, csrf: Csrf): Html {
+  return html`<li class="step ${step.done ? "done" : ""}" data-step="${step.id}"><span class="step-dot"></span>
+<div class="grow"><div class="name">${step.title}</div><div class="sub">${step.line}</div></div>
+<span class="check" title="Done">${CHECK}</span><div class="actions todo">${setupAction(step.action, csrf)}</div></li>`;
+}
+
+/**
+ * The setup checklist. Open while anything is to do; once it's all done
+ * it folds down to one "All set" line so the page stays clean.
+ */
+function setupSection(setup: SetupSummary, csrf: Csrf): Html | string {
+  if (!setup.steps.length) return "";
+  const allSet = setup.todo === 0;
+  return html`<details id="setup" class="setup ${allSet ? "all-set" : ""}" data-todo="${setup.todo}" ${allSet ? "" : new Html("open")}>
+<summary><h2>${setup.heading}</h2><span class="tick">${CHECK}</span><span class="chev" aria-hidden="true">›</span></summary>
+<ul class="list card">
+${setup.steps.map((step) => setupRow(step, csrf))}
+</ul></details>
+<script>${new Html(SETUP_SCRIPT)}</script>`;
+}
+
 export type AdminView = {
+  setup: SetupSummary;
   connections: UpstreamConnection[];
   agents: { agent: AgentConfig; hasToken: boolean; upstreams: string[]; lastCall?: number }[];
   pending: ApprovalRecord[];
@@ -242,7 +362,7 @@ ${view.agents.map(
 <div class="muted small">${row.lastCall ? formatTime(row.lastCall) : "No calls yet"}</div></li>`,
 )}
 </ul>`;
-  return page("Connectors", html`<h1>Connectors</h1>${flash}${pending}${services}${agents}`, { section: "services" });
+  return page("Connectors", html`<h1>Connectors</h1>${flash}${pending}${setupSection(view.setup, view.csrf)}${services}${agents}`, { section: "services" });
 }
 
 export type ConnectView = {

@@ -13,6 +13,7 @@ import { after, before, describe, it } from "node:test";
 import { type Browser, type BrowserContext, chromium } from "playwright-core";
 
 import { startFakeOAuthUpstream, type FakeOAuthUpstream } from "../fixtures/fakeOAuthServer.ts";
+import { issueToken, removeToken } from "../../src/tokens.ts";
 import { type Gateway, LOGIN, legacyClient, startGateway, stdioUpstream, textOf } from "../helpers.ts";
 
 async function launch(): Promise<Browser | undefined> {
@@ -64,7 +65,8 @@ describe("admin pages in a browser", () => {
     assert.equal(await page.locator(".dot.needs_sign_in[title]").first().getAttribute("title"), "Needs sign-in");
     await Promise.all([
       page.waitForURL(`${gateway.url}/admin?connected=secure`, { timeout: 10_000 }),
-      page.locator('form[action="/admin/upstreams/secure/connect"] button').click(),
+      // The setup checklist has the same Connect button as the services list.
+      page.locator('#setup form[action="/admin/upstreams/secure/connect"] button').click(),
     ]);
     assert.deepEqual(problems, []);
     assert.equal(await page.locator(".flash").textContent(), "Signed in to Secure service.");
@@ -89,5 +91,27 @@ describe("admin pages in a browser", () => {
     assert.equal(textOf(done), "sent to kim");
     await page.close();
     await client.close();
+  });
+
+  it("turns a setup row green by itself once the step is done", async (t) => {
+    if (!browser) return t.skip("no headless Chromium");
+    removeToken(gateway.layout.agentsSecrets, "grok");
+    const page = await context.newPage();
+    try {
+      await page.goto(`${gateway.url}/admin`);
+      const row = page.locator('li[data-step="agent:grok"]');
+      assert.equal(await row.getAttribute("class"), "step ");
+      assert.equal(await page.locator("#setup h2").textContent(), "1 to do");
+      assert.equal(await page.locator("#setup").getAttribute("open"), "");
+      // Wired from Terminal: no reload, the page's poll picks it up.
+      gateway.tokens.grok = issueToken(gateway.layout.agentsSecrets, "grok", { rotate: false });
+      await page.waitForSelector('li.step.done[data-step="agent:grok"]', { timeout: 10_000 });
+      assert.equal(await page.locator("#setup h2").textContent(), "All set");
+      assert.equal(await row.locator(".sub").textContent(), "Wired, no calls yet");
+      // A CSP that blocked the script or its fetch would show up here.
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
   });
 });

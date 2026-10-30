@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 
+import { issueToken, removeToken } from "../src/tokens.ts";
 import { type Gateway, adminHeaders, csrfFrom, legacyClient, postForm, startGateway, stdioUpstream, textOf } from "./helpers.ts";
 
 describe("admin pages", () => {
@@ -132,5 +133,54 @@ describe("admin pages", () => {
 
   it("404s an unknown approval", async () => {
     assert.equal((await fetch(`${gateway.url}/approvals/ap_nope`, { headers: adminHeaders() })).status, 404);
+  });
+
+  it("folds the setup checklist to one line when everything is done", async () => {
+    const html = await (await fetch(`${gateway.url}/admin`, { headers: adminHeaders() })).text();
+    assert.match(html, /<details id="setup" class="setup all-set" data-todo="0" >/);
+    assert.match(html, /<h2>All set<\/h2>/);
+    assert.match(html, /data-step="service:fake"/);
+    assert.match(html, /data-step="agent:grok"/);
+  });
+
+  it("keeps the setup feed behind the admin login", async () => {
+    assert.equal((await fetch(`${gateway.url}/admin/setup.json`)).status, 403);
+    const other = await fetch(`${gateway.url}/admin/setup.json`, { headers: { "Tailscale-User-Login": "someone@else.com" } });
+    assert.equal(other.status, 403);
+    const response = await fetch(`${gateway.url}/admin/setup.json`, { headers: adminHeaders() });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const setup = (await response.json()) as { heading: string; todo: number; steps: { id: string; done: boolean }[] };
+    assert.equal(setup.heading, "All set");
+    assert.equal(setup.todo, 0);
+    assert.deepEqual(
+      setup.steps.map((step) => step.id),
+      ["service:fake", "agent:claude-3", "agent:codex", "agent:grok"],
+    );
+  });
+
+  it("shows an agent without a token as to do until it gets one", async () => {
+    removeToken(gateway.layout.agentsSecrets, "grok");
+    try {
+      const html = await (await fetch(`${gateway.url}/admin`, { headers: adminHeaders() })).text();
+      assert.match(html, /<details id="setup" class="setup " data-todo="1" open>/);
+      assert.match(html, /<h2>1 to do<\/h2>/);
+      assert.match(html, /<li class="step " data-step="agent:grok">/);
+      // The test agents have no client, so it gets a token by hand.
+      assert.match(html, /<pre>connectors agent add grok<\/pre>/);
+      const csp = (await fetch(`${gateway.url}/admin`, { headers: adminHeaders() })).headers.get("content-security-policy") ?? "";
+      assert.match(csp, /script-src 'sha256-[A-Za-z0-9+/=]+'/);
+      assert.match(csp, /connect-src 'self'/);
+      const before = (await (await fetch(`${gateway.url}/admin/setup.json`, { headers: adminHeaders() })).json()) as {
+        todo: number;
+        steps: { id: string; done: boolean; line: string }[];
+      };
+      assert.equal(before.todo, 1);
+      assert.deepEqual(before.steps.find((step) => step.id === "agent:grok"), { id: "agent:grok", done: false, line: "Not wired yet" });
+    } finally {
+      gateway.tokens.grok = issueToken(gateway.layout.agentsSecrets, "grok", { rotate: false });
+    }
+    const after = (await (await fetch(`${gateway.url}/admin/setup.json`, { headers: adminHeaders() })).json()) as { todo: number };
+    assert.equal(after.todo, 0);
   });
 });

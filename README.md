@@ -75,9 +75,10 @@ That:
 4. puts the `connectors` command in `~/.local/bin` and opens the admin
    page.
 
-On the admin page, press Connect next to Notion. Your agents see its tools
-from their next session (Claude Code sessions that are open see them
-straight away). DeepWiki needs no sign-in.
+The admin page opens with a checklist of what's left, and each row turns
+green by itself once it's done. Press Connect next to Notion. Your agents
+see its tools from their next session (Claude Code sessions that are open
+see them straight away). DeepWiki needs no sign-in.
 
 `--owner` is what agents call you ("Waiting for Sam to approve this");
 without it they say "the user".
