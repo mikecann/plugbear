@@ -7,6 +7,9 @@
 # The file is plain Slack text: <https://url|label> links, "• " bullets, **bold**.
 # (The send tool reads *x* as italics, so bold needs two stars.)
 # Codex adds a "Sent using @ChatGPT" line under every message; it can't be turned off.
+# Exit 0: sent, permalink printed. 1: not sent. 2: bad arguments. 3: unknown or
+# misdirected (check the channel before running it again, or it may post twice).
+# Each run's brief, events and errors stay in ~/Library/Logs/slack-post/.
 #
 # Why this exists: slack-read is read-only on purpose, and Connectors has no
 # Slack upstream. Codex's Slack app can send as Mike, but only when its write
@@ -21,12 +24,14 @@ emulate -L zsh
 setopt pipe_fail
 
 if [[ $# -lt 2 || $1 == -h || $1 == --help ]]; then
-  sed -n '2,7p' $0 | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' $0 | sed 's/^# \{0,1\}//'
   exit 0
 fi
 channel=$1 file=$2 thread=${3:-}
 [[ $channel =~ '^[CDG][A-Z0-9]+$' ]] || { print -u2 "slack-post: '$channel' isn't a Slack channel id (C…, D… or G…)"; exit 2; }
-[[ -s $file ]] || { print -u2 "slack-post: no message in '$file'"; exit 2; }
+[[ -f $file && -r $file ]] || { print -u2 "slack-post: '$file' isn't a readable file"; exit 2; }
+message=$(<$file) || { print -u2 "slack-post: couldn't read '$file'"; exit 2; }
+[[ -n ${message//[[:space:]]/} ]] || { print -u2 "slack-post: '$file' is empty"; exit 2; }
 [[ -z $thread || $thread =~ '^[0-9]+\.[0-9]+$' ]] || { print -u2 "slack-post: '$thread' isn't a thread ts"; exit 2; }
 command -v codex >/dev/null || { print -u2 "slack-post: codex isn't installed"; exit 1; }
 
@@ -53,8 +58,10 @@ EOF
 )
 [[ -n $app_id ]] || { print -u2 "slack-post: couldn't find Codex's Slack app. Is the Slack plugin on in Codex?"; exit 1; }
 
-work=$(mktemp -d -t slack-post)
-trap 'rm -rf $work' EXIT
+# Kept, not deleted: if a send's outcome is unclear, this is the evidence.
+work=~/Library/Logs/slack-post/$(date +%Y%m%d-%H%M%S)-$$
+mkdir -p $work
+print -r -- $message > $work/message.txt
 # A fence the message can't close, so its text can't pose as more of the brief.
 fence="MESSAGE-$(openssl rand -hex 8)"
 where="channel $channel"
@@ -69,24 +76,86 @@ where="channel $channel"
   print -r -- "- Then print only the sent message's permalink on one line, or SEND FAILED: and the exact error."
   print
   print $fence
-  cat $file
+  print -r -- $message
   print
   print $fence
 } > $work/brief.md
 
-timeout ${SLACK_POST_TIMEOUT:-240} codex exec \
+# --json gives the tool calls and their results, so success is judged from the
+# send tool's own answer, never from a link in Codex's prose (which could be
+# an old one, or invented).
+timeout ${SLACK_POST_TIMEOUT:-240} codex exec --json \
   -s read-only --skip-git-repo-check -C $work \
   -c 'model_reasoning_effort="low"' \
   -c 'apps._default.default_tools_approval_mode="auto"' \
   -c "apps.$app_id.default_tools_approval_mode=\"approve\"" \
-  -o $work/out.md - < $work/brief.md > $work/log 2>&1
+  - < $work/brief.md > $work/events.jsonl 2> $work/stderr.log
 code=$?
 
-link=$(grep -oE "https://[a-z0-9-]+\.slack\.com/archives/$channel/p[0-9]+(\?thread_ts=[0-9.]+)?" $work/out.md 2>/dev/null | head -1)
-if [[ $code -ne 0 || -z $link ]]; then
-  print -u2 "slack-post: no sign it was sent (codex exited $code). Its answer:"
-  cat $work/out.md >&2 2>/dev/null
-  tail -15 $work/log >&2
-  exit 1
-fi
-print -r -- $link
+# Exit codes: 0 sent (prints the permalink), 1 not sent, 3 unknown (a send
+# started but never reported back, e.g. a timeout: check the channel before
+# trying again, or it may post twice).
+python3 -I - $work/events.jsonl $channel "$thread" $work/message.txt $code <<'EOF'
+import json, sys
+events, channel, thread, message_file, code = sys.argv[1:6]
+want = open(message_file).read().strip()
+started, done = {}, {}
+other = []
+for line in open(events):
+    try:
+        e = json.loads(line)
+    except ValueError:
+        continue
+    item = e.get('item') or {}
+    if item.get('type') != 'mcp_tool_call':
+        continue
+    tool = item.get('tool') or ''
+    if not tool.endswith('send_message'):
+        if e.get('type') == 'item.started':
+            other.append(tool)
+        continue
+    (done if e.get('type') == 'item.completed' else started)[item.get('id')] = item
+def say(*a):
+    print('slack-post:', *a, file=sys.stderr)
+if other:
+    say('Codex also called', ', '.join(sorted(set(other))), '(it was told not to)')
+sent, stray = [], []
+for id, item in done.items():
+    if item.get('status') != 'completed' or item.get('error'):
+        say('the send failed:', json.dumps(item.get('error') or item.get('status')))
+        continue
+    try:
+        res = json.loads(item['result']['content'][0]['text'])
+    except Exception:
+        say('the send returned something unexpected:', json.dumps(item.get('result'))[:300])
+        continue
+    ctx = res.get('message_context') or {}
+    link = res.get('message_link') or ''
+    if ctx.get('channel_id') != channel or '/archives/%s/p' % channel not in link:
+        say('a message went to', ctx.get('channel_id'), 'instead of', channel, link)
+        stray.append(link)
+        continue
+    args = item.get('arguments') or {}
+    if thread and args.get('thread_ts') != thread:
+        say('it went to the channel, not thread', thread)
+    if (args.get('message') or '').strip() != want:
+        say('the sent text differs from the file; check it:', link)
+    sent.append(link)
+pending = [i for i in started if i not in done]
+if len(sent) > 1:
+    say('it posted %d times:' % len(sent), ' '.join(sent))
+if sent:
+    print(sent[0])
+    sys.exit(0)
+if stray:
+    say('nothing reached', channel, 'but something was posted elsewhere: check it before trying again.')
+    sys.exit(3)
+if pending:
+    say('a send started but never reported back (codex exit %s). It may have gone out: check the channel before trying again.' % code)
+    sys.exit(3)
+say('not sent (codex exit %s).' % code)
+sys.exit(1)
+EOF
+result=$?
+(( result == 0 )) || print -u2 "slack-post: details in $work"
+exit $result
