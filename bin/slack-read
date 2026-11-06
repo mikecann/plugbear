@@ -64,7 +64,10 @@ Request: $*
 EOF
 
 # _default covers any other app Codex reaches for, so they're read-only too.
-timeout ${SLACK_READ_TIMEOUT:-300} codex exec \
+# -k: a Codex that ignores SIGTERM is SIGKILLed 10 s later, rather than running
+# on past the limit (seen in a review, 6 Nov). This timeout puts Codex in its
+# own process group, so a caller's own timeout can't reach it: only this can.
+timeout -k 10 ${SLACK_READ_TIMEOUT:-300} codex exec \
   -s read-only --skip-git-repo-check -C $work \
   -c 'model_reasoning_effort="low"' \
   -c 'apps._default.default_tools_approval_mode="auto"' \
