@@ -34,6 +34,17 @@ message=$(<$file) || { print -u2 "slack-post: couldn't read '$file'"; exit 2; }
 [[ -n ${message//[[:space:]]/} ]] || { print -u2 "slack-post: '$file' is empty"; exit 2; }
 [[ -z $thread || $thread =~ '^[0-9]+\.[0-9]+$' ]] || { print -u2 "slack-post: '$thread' isn't a thread ts"; exit 2; }
 command -v codex >/dev/null || { print -u2 "slack-post: codex isn't installed"; exit 1; }
+# Messages to people come from Mike himself: agents draft, he pastes and rewords
+# (Mike, 6 Nov 2026). The only exception he's OKed is the daily Threadbear
+# changes post in #threadbear, where "Sent using ChatGPT" is fine. Mike's own
+# DM is allowed for testing. Add a channel here only when Mike OKs an automated
+# post for it; never thread replies, which are conversations.
+allowed=(C0CFFBUTYAD D081K58GW3H)
+if (( ! ${allowed[(Ie)$channel]} )) || [[ -n $thread && $channel != D081K58GW3H ]]; then
+  print -u2 "slack-post: not allowed. Mike sends messages to people himself: put a draft in your reply for him to paste. Only automated posts he's OKed may use this (see 'allowed' in $0)."
+  exit 2
+fi
+
 
 # Same lookup as slack-read: the app id differs per Codex install.
 app_id=$(python3 -I - <<'EOF'
