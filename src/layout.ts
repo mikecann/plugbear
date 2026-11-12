@@ -26,6 +26,8 @@ export type Layout = {
   adminKey: string;
   state: string;
   db: string;
+  // Files agents upload for email attachments (see uploads.ts).
+  uploadsDir: string;
   // This install's own config, without secrets: settings.json,
   // upstreams.json, agents.json, policy.json. Any of them may be missing.
   configDir: string;
@@ -64,6 +66,7 @@ export function makeLayout(
     adminKey: join(secrets, "admin-key"),
     state,
     db: join(state, "connectors.sqlite"),
+    uploadsDir: join(state, "uploads"),
     configDir,
     examplesDir: options.examplesDir ?? defaultExamplesDir(),
     settingsFile: join(configDir, "settings.json"),

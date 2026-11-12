@@ -39,7 +39,8 @@ export class ArgError extends Error {
   }
 }
 
-export type ToolContext = { token: string; urls: GoogleUrls };
+// uploadsDir: where POST /uploads keeps files, for attachments by uploadId.
+export type ToolContext = { token: string; urls: GoogleUrls; uploadsDir?: string };
 
 export type ToolDef = {
   name: string;
@@ -68,7 +69,7 @@ export function withQuery(url: string, query: Query = {}): string {
 /** One request to a Google API. Throws GoogleApiError with Google's own message. */
 export async function google<T>(
   ctx: ToolContext,
-  method: "GET" | "POST" | "PATCH",
+  method: "GET" | "POST" | "PATCH" | "PUT",
   url: string,
   body?: unknown,
 ): Promise<T> {

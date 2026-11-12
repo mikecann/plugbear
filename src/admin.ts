@@ -8,6 +8,7 @@ import type { AgentConfig } from "./config.ts";
 import type { ApprovalRecord, CallRecord } from "./db.ts";
 import { Html, html } from "./html.ts";
 import type { SetupAction, SetupStep, SetupSummary } from "./setup.ts";
+import type { UploadMeta } from "./uploads.ts";
 import type { UpstreamConnection, UpstreamState } from "./upstreams.ts";
 
 const dateFormat = new Intl.DateTimeFormat("en-AU", {
@@ -129,6 +130,11 @@ details.how .tip { width: min(27rem, 85vw); top: 2.4rem; }
 .email, .args { padding: 1rem 1.25rem; margin: 0.5rem 0; }
 .email dl, .args dl { margin: 0; }
 .email .body { border-top: 1px solid var(--line); margin-top: 0.9rem; padding-top: 0.9rem; }
+.email h3 { font-size: 0.85rem; color: var(--muted); font-weight: 600; margin: 1rem 0 0.4rem; }
+.email .html { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; max-height: 40vh; overflow-y: auto; }
+.email .files { list-style: none; margin: 0; padding: 0; }
+.email .files li { margin: 0.5rem 0; }
+.email .files img { display: block; max-width: 100%; max-height: 22rem; margin-top: 0.35rem; border: 1px solid var(--line); border-radius: 6px; }
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .args dd pre { margin: 0; max-height: 40vh; }
 details.raw { margin: 0.4rem 0 1rem; }
@@ -464,6 +470,7 @@ export type ApprovalView = {
   now: number;
   // How many calls like this are waiting, when that's too many for one page.
   tooManyToGroup?: number;
+  uploads?: UploadLookup;
 };
 
 function approvalStatus(record: ApprovalRecord): string {
@@ -521,6 +528,7 @@ function argRow(key: string, value: unknown): Html {
 }
 
 const EMAIL_HEADERS: [key: string, label: string][] = [
+  ["draftId", "Draft"],
   ["to", "To"],
   ["cc", "Cc"],
   ["bcc", "Bcc"],
@@ -528,31 +536,99 @@ const EMAIL_HEADERS: [key: string, label: string][] = [
   ["replyToMessageId", "In reply to"],
 ];
 
-// Gmail's send_message and create_draft, shaped like an email so the owner
-// reads what the recipient will. Only when every argument fits that shape;
-// otherwise it falls back to the generic rows rather than guess.
-function emailView(args: Record<string, unknown>): Html | undefined {
-  const known = new Set(["body", ...EMAIL_HEADERS.map(([key]) => key)]);
+const EMAIL_TOOLS = new Set(["send_message", "create_draft", "update_draft"]);
+// Shown as a picture. Not SVG: an <img> can't run its scripts, but there's no need.
+const PREVIEW_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const ATTACHMENT_KEYS = new Set(["filename", "mimeType", "data", "uploadId", "inline", "contentId"]);
+
+/** Looks up an upload by id for the approval page, so it can show what will go. */
+export type UploadLookup = (id: string) => { meta: UploadMeta; bytes: Buffer } | undefined;
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// One attachment as the recipient gets it: name, type, size, inline or not,
+// and the picture itself for images. Undefined when it isn't shaped like
+// one, so the page falls back to plain rows rather than guess.
+function attachmentRow(value: unknown, uploads?: UploadLookup): Html | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entry = value as Record<string, unknown>;
+  for (const [key, field] of Object.entries(entry)) {
+    if (!ATTACHMENT_KEYS.has(key)) return undefined;
+    if (key === "inline" ? typeof field !== "boolean" : typeof field !== "string") return undefined;
+  }
+  const str = (key: string) => (typeof entry[key] === "string" && entry[key] ? (entry[key] as string) : undefined);
+  let bytes: Buffer | undefined;
+  let missing: Html | string = "";
+  let filename = str("filename");
+  let type = str("mimeType");
+  const uploadId = str("uploadId");
+  const data = str("data");
+  if (uploadId) {
+    const upload = uploads?.(uploadId);
+    if (upload) {
+      bytes = upload.bytes;
+      filename ??= upload.meta.filename;
+      type ??= upload.meta.contentType;
+    } else {
+      missing = html` <span class="muted">Upload ${uploadId} isn't here any more, so this call will fail.</span>`;
+    }
+  } else if (data) {
+    const clean = data.replace(/\s+/g, "").replace(/^data:[^,]*;base64,/, "");
+    bytes = Buffer.from(clean, /[-_]/.test(clean) ? "base64url" : "base64");
+  }
+  const where = entry.inline === true ? `inline, as cid:${str("contentId") ?? "?"}` : "attached";
+  const preview =
+    bytes && type && PREVIEW_TYPES.has(type.toLowerCase())
+      ? html`<img alt="${filename ?? "image"}" src="data:${type.toLowerCase()};base64,${bytes.toString("base64")}">`
+      : "";
+  return html`<li><strong>${filename ?? "(no name)"}</strong> <span class="muted">${type ?? "type from the name"}, ${
+    bytes ? formatSize(bytes.length) : "size unknown"
+  }, ${where}</span>${missing}${preview}</li>`;
+}
+
+// Gmail's send_message, create_draft and update_draft, shaped like an email
+// so the owner reads what the recipient will. Only when every argument fits
+// that shape; otherwise it falls back to the generic rows rather than guess.
+function emailView(args: Record<string, unknown>, uploads?: UploadLookup): Html | undefined {
+  const known = new Set(["body", "htmlBody", "attachments", ...EMAIL_HEADERS.map(([key]) => key)]);
   if (typeof args.body !== "string" || !isStringList(args.to)) return undefined;
   for (const [key, value] of Object.entries(args)) {
     if (!known.has(key)) return undefined;
-    if (key !== "body" && !(typeof value === "string" || isStringList(value))) return undefined;
+    if (key === "attachments" || key === "body") continue;
+    if (key === "htmlBody" ? typeof value !== "string" : !(typeof value === "string" || isStringList(value))) return undefined;
+  }
+  let files: Html | string = "";
+  if (args.attachments !== undefined) {
+    if (!Array.isArray(args.attachments)) return undefined;
+    const rows = args.attachments.map((item) => attachmentRow(item, uploads));
+    if (rows.some((row) => row === undefined)) return undefined;
+    files = html`<h3>Attachments</h3><ul class="files">${rows as Html[]}</ul>`;
   }
   const rows = EMAIL_HEADERS.filter(([key]) => key in args).map(([key, label]) => {
     const value = args[key] as string | string[];
     const text = Array.isArray(value) ? value.join(", ") : value;
     return html`<dt>${label}</dt><dd>${text === "" ? html`<span class="muted">(empty)</span>` : text}</dd>`;
   });
-  return html`<div class="card email"><dl>${rows}</dl><div class="text body">${args.body}</div></div>`;
+  // The HTML as written, not rendered: rendering would mean letting the
+  // agent's markup into this page.
+  const htmlPart =
+    typeof args.htmlBody === "string"
+      ? html`<h3>HTML version (as written; Gmail shows it formatted)</h3><div class="text html">${args.htmlBody}</div>`
+      : "";
+  return html`<div class="card email"><dl>${rows}</dl><div class="text body">${args.body}</div>${htmlPart}${files}</div>`;
 }
 
 /** A call's arguments, readable first, with the exact JSON one click away. */
-function argsView(argsJson: string, upstreamTool: string): Html {
+function argsView(argsJson: string, upstreamTool: string, uploads?: UploadLookup): Html {
   const raw = html`<pre>${prettyArgs(argsJson)}</pre>`;
   const args = parseObject(argsJson);
   if (!args || Object.keys(args).length === 0) return raw;
   const readable =
-    (upstreamTool === "send_message" || upstreamTool === "create_draft" ? emailView(args) : undefined) ??
+    (EMAIL_TOOLS.has(upstreamTool) ? emailView(args, uploads) : undefined) ??
     html`<div class="card args"><dl>${Object.entries(args).map(([key, value]) => argRow(key, value))}</dl></div>`;
   return html`${readable}<details class="raw"><summary>Raw arguments</summary>${raw}</details>`;
 }
@@ -589,7 +665,7 @@ ${record.note ? html`<dt>Your note</dt><dd>${record.note}</dd>` : ""}
       ? "Exactly what will be sent when the agent picks it up."
       : "As kept in the call log: secret-looking values are hidden and long ones are cut."
 }</p>
-${argsView(record.argsJson, record.upstreamTool)}
+${argsView(record.argsJson, record.upstreamTool, view.uploads)}
 ${
   view.tooManyToGroup
     ? html`<p class="muted">${view.tooManyToGroup} calls like this are waiting. That's too many to approve together, so each one has its own page.</p>`
@@ -606,6 +682,7 @@ export type ApprovalGroupView = {
   csrf: (action: string) => string;
   // Covers exactly the calls on this page, see POST /approvals/batch.
   batchCsrf: string;
+  uploads?: UploadLookup;
 };
 
 /**
@@ -619,7 +696,7 @@ export function approvalGroupPage(view: ApprovalGroupView): string {
   const tool = records[0]!.tool;
   const calls = records.map(
     (record, index) => html`<h2>Call ${index + 1} of ${count}, asked ${formatTime(record.createdAt)}</h2>
-${argsView(record.argsJson, record.upstreamTool)}
+${argsView(record.argsJson, record.upstreamTool, view.uploads)}
 <form class="actions" method="post" action="/approvals/${encodeURIComponent(record.id)}">
 <input type="hidden" name="csrf" value="${view.csrf(`approval:${record.id}`)}">
 <button type="submit" name="action" value="approve">Approve this one</button>

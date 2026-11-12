@@ -22,6 +22,7 @@ import { type Mode, type Settings, loadSettings } from "./settings.ts";
 import { createGuardedFetch } from "./ssrf.ts";
 import { TokenStore } from "./tokens.ts";
 import { UpstreamManager } from "./upstreams.ts";
+import { sweepUploads } from "./uploads.ts";
 import { VERSION } from "./version.ts";
 
 const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -142,6 +143,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     log,
     allowLoopbackUpstreams: options.allowLoopbackUpstreams,
     debugMcp: options.debugMcp ?? process.env.CONNECTORS_DEBUG_MCP === "1",
+    uploadsDir: layout.uploadsDir,
   });
 
   const server = await new Promise<HttpServer>((resolve, reject) => {
@@ -161,6 +163,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     try {
       const removed = store.prune(Date.now());
       log.info(`pruned ${removed.calls} calls, ${removed.approvals} approvals, ${removed.states} sign-in states`);
+      // Expired uploads go too. A new upload sweeps as well; this catches a quiet gateway.
+      sweepUploads(layout.uploadsDir, Date.now());
     } catch (error) {
       log.error(`pruning failed: ${errorMessage(error)}`);
       reportError(error, "prune");

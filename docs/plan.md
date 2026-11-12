@@ -320,9 +320,26 @@ this app" screen, which stays, since it's the owner's own unverified app.
   is signed in. It calls `gmail.googleapis.com` and
   `www.googleapis.com/calendar/v3` only, with redirects refused.
 - Tools. Gmail: `search_threads`, `get_thread`, `get_message`,
-  `list_labels`, `create_draft`, `send_message` (plain text; `to`, `cc`,
-  `bcc` lists, `replyToMessageId` threads a reply). No "send draft": its
-  approval page would show only a draft id. Calendar: `list_calendars`,
+  `list_labels`, `create_draft`, `update_draft`, `send_message` (`to`,
+  `cc`, `bcc` lists, `replyToMessageId` threads a reply). No "send draft":
+  its approval page would show only a draft id. `update_draft` replaces the
+  whole draft (PUT) and keeps its thread, reply headers and subject.
+- Added 12 Nov: HTML and attachments. `body` stays the plain text;
+  `htmlBody` adds a multipart/alternative, inline attachments wrap it in
+  multipart/related, others in multipart/mixed, like Gmail's own compose.
+  Each attachment is base64 `data` or an `uploadId`. Typing a screenshot out
+  as base64 costs an agent a token per few characters, and the gateway is
+  usually on another machine, so it can't read the agent's file path. So
+  `POST /uploads` takes the raw bytes with the same bearer token as `/mcp`
+  (3 MB each, 200 MB in all, a day each) into `state/uploads/`, and the
+  Gmail server reads them by id (`CONNECTORS_UPLOADS_DIR`, ids checked
+  against `up_` and 22 base64url characters, so never a path). Inline
+  attachments must be used by a `cid:` in the HTML and every `cid:` must
+  match one, so a typo fails the call instead of sending a broken image.
+  One email's attachments come to 3 MB at most: Gmail gets the message as
+  one JSON field, and the Gmail server's heap is 64 MB. The approval page
+  shows the HTML as text (not rendered) and each image as a data: picture
+  (the pages' CSP allows `img-src data:` for this). Calendar: `list_calendars`,
   `list_events` (time range, free-text query, recurring events expanded),
   `get_event`, `create_event`, `update_event` (patch). `update_event`
   refuses to change an event that has guests unless the call lists the

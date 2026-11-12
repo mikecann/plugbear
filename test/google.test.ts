@@ -165,7 +165,7 @@ describe("Gmail and Google Calendar", () => {
 
     const statuses = await health();
     assert.equal(statuses.gmail!.state, "connected");
-    assert.equal(statuses.gmail!.tools, 6);
+    assert.equal(statuses.gmail!.tools, 7);
     assert.equal(statuses.gcal!.tools, 5);
     // /health is open on the tailnet: no email, no tokens.
     const raw = await (await fetch(`${gateway.url}/health`)).text();
@@ -185,6 +185,7 @@ describe("Gmail and Google Calendar", () => {
       "gmail__get_message",
       "gmail__list_labels",
       "gmail__create_draft",
+      "gmail__update_draft",
       "gmail__send_message",
       "gcal__list_calendars",
       "gcal__list_events",
@@ -241,6 +242,74 @@ describe("Gmail and Google Calendar", () => {
     assert.equal(JSON.parse(textOf(result)).sent, true);
     assert.equal(google.sent.length, 1);
     assert.match(Buffer.from(google.sent[0]!.raw, "base64url").toString("utf8"), /Subject: Hi/);
+    await client.close();
+  });
+
+  it("drafts and sends HTML with an uploaded inline screenshot, and shows it on the approval page", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001", "hex");
+    const upload = (headers: Record<string, string>, body: Uint8Array = png, query = "?filename=portal.png") =>
+      fetch(`${gateway.url}/uploads${query}`, { method: "POST", headers: { "content-type": "image/png", ...headers }, body });
+    // Only with an agent's token, and only so big.
+    assert.equal((await upload({})).status, 401);
+    assert.equal((await upload({ authorization: "Bearer nope" })).status, 401);
+    const auth = { authorization: `Bearer ${gateway.tokens.codex}` };
+    assert.equal((await upload(auth, new Uint8Array(3 * 1024 * 1024 + 1))).status, 413);
+    assert.equal((await upload(auth, png, "?filename=../x.png")).status, 400);
+    const uploaded = (await (await upload(auth)).json()) as { uploadId: string; filename: string; size: number };
+    assert.match(uploaded.uploadId, /^up_/);
+    assert.equal(uploaded.filename, "portal.png");
+    assert.equal(uploaded.size, png.length);
+
+    const client = await legacyClient(gateway, "codex");
+    const tools = (await client.listTools()).tools;
+    // The description tells agents where to upload.
+    assert.ok(JSON.stringify(tools.find((tool) => tool.name === "gmail__create_draft")!.inputSchema).includes(`${gateway.url}/uploads`));
+    const email = {
+      to: ["ann@example.com"],
+      subject: "Portal",
+      body: "The new portal, screenshot below.",
+      htmlBody: '<p>The new portal:</p><img src="cid:portal" width="600">',
+      attachments: [{ uploadId: uploaded.uploadId, inline: true, contentId: "portal" }],
+    };
+    const draft = await client.callTool({ name: "gmail__create_draft", arguments: email });
+    assert.equal(draft.isError, undefined, textOf(draft));
+    const raw = Buffer.from(google.drafts.at(-1)!.raw, "base64url").toString("utf8");
+    assert.match(raw, /Content-Type: multipart\/related/);
+    assert.match(raw, /Content-Type: image\/png; name="portal.png"\r\nContent-Disposition: inline; filename="portal.png"\r\nContent-ID: <portal>/);
+    assert.ok(raw.includes(png.toString("base64")));
+
+    // A broken cid: link fails here, not as a missing picture in Gmail.
+    const typo = await client.callTool({ name: "gmail__create_draft", arguments: { ...email, htmlBody: '<img src="cid:portl">' } });
+    assert.equal(typo.isError, true);
+    assert.match(textOf(typo), /htmlBody has no <img src="cid:portal">/);
+
+    // update_draft keeps the draft's thread, reply headers and subject.
+    const updated = await client.callTool({
+      name: "gmail__update_draft",
+      arguments: { draftId: "d1", to: ["ann@example.com"], body: "Changed", htmlBody: "<b>Changed</b>" },
+    });
+    assert.equal(updated.isError, undefined, textOf(updated));
+    const update = google.draftUpdates.at(-1)!;
+    assert.equal(update.body.id, "d1");
+    assert.equal(update.body.message.threadId, "t1");
+    const updatedRaw = Buffer.from(update.body.message.raw, "base64url").toString("utf8");
+    assert.match(updatedRaw, /Subject: Re: Lunch\r\nIn-Reply-To: <m1@example.com>\r\nReferences: <m1@example.com>\r\n/);
+    assert.match(updatedRaw, /multipart\/alternative/);
+    const missing = await client.callTool({ name: "gmail__update_draft", arguments: { draftId: "nope", to: ["a@b.c"], body: "x" } });
+    assert.equal(missing.isError, true);
+
+    // The send waits for Sam, whose page shows the picture that will go.
+    const send = await client.callTool({ name: "gmail__send_message", arguments: email });
+    assert.match(textOf(send), /Waiting for Sam/);
+    const id = /id (ap_[A-Za-z0-9_-]+)/.exec(textOf(send))![1]!;
+    const page = await fetch(`${gateway.url}/approvals/${id}`, { headers: adminHeaders() });
+    assert.match(page.headers.get("content-security-policy")!, /img-src data:/);
+    const pageHtml = await page.text();
+    assert.ok(pageHtml.includes(`<img alt="portal.png" src="data:image/png;base64,${png.toString("base64")}">`));
+    gateway.approvals.decide(id, "approved");
+    const sent = await client.callTool({ name: "connectors__await_approval", arguments: { id } });
+    assert.equal(JSON.parse(textOf(sent)).sent, true, textOf(sent));
+    assert.match(Buffer.from(google.sent.at(-1)!.raw, "base64url").toString("utf8"), /Content-ID: <portal>/);
     await client.close();
   });
 

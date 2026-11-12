@@ -34,6 +34,8 @@ if (!tools) {
   process.exit(2);
 }
 const urls = googleUrls(process.env.CONNECTORS_GOOGLE_API_BASE);
+// Read only, for attachments given by uploadId (see src/uploads.ts).
+const uploadsDir = process.env.CONNECTORS_UPLOADS_DIR || undefined;
 const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
 function send(message: unknown): void {
@@ -58,7 +60,7 @@ async function callTool(params: Record<string, unknown>) {
   const raw = params.arguments;
   const args = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   try {
-    const value = await tool.run(args, { token, urls });
+    const value = await tool.run(args, { token, urls, uploadsDir });
     return text(typeof value === "string" ? value : JSON.stringify(value, null, 2));
   } catch (error) {
     if (error instanceof ArgError) return text(error.message, true);

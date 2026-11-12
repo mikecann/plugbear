@@ -334,9 +334,26 @@ Calendar (read, events); the Connect page shows which Google account signed
 in. If you untick Calendar, Gmail works and Calendar stays signed out.
 
 Tools: `gmail__search_threads`, `get_thread`, `get_message`, `list_labels`,
-`create_draft`, `send_message` (asks you), and `gcal__list_calendars`,
-`list_events`, `get_event`, `create_event` and `update_event` (ask you when
-there are guests).
+`create_draft`, `update_draft`, `send_message` (asks you), and
+`gcal__list_calendars`, `list_events`, `get_event`, `create_event` and
+`update_event` (ask you when there are guests).
+
+Drafts and sends can have an `htmlBody` next to the plain `body`, and
+`attachments`, including inline images (`inline: true` and a `contentId`
+that the HTML shows with `<img src="cid:...">`). An attachment is either
+base64 `data`, which only makes sense for something tiny since the agent
+has to type it out, or an `uploadId`. To get one, the agent posts the file
+to the gateway with its usual token:
+
+```bash
+curl -sS --data-binary @portal.png -H 'Content-Type: image/png' \
+  -H "Authorization: Bearer $(security find-generic-password -s connectors -a <agent id> -w)" \
+  'https://<gateway>/uploads?filename=portal.png'
+```
+
+Uploads are kept in `state/uploads/` for a day. One email's attachments can
+come to 3 MB at most. A send's approval page shows the HTML as written and a
+picture of each image.
 
 ## Slack (through Codex)
 
@@ -398,7 +415,7 @@ What it is careful about:
   anywhere are refused, since a JavaScript upstream could turn one into
   values you never saw.
 - Limits, so one runaway agent can't take the gateway down: 1 MB per
-  request, 32 calls running at once per agent, 20 calls per agent waiting
+  request, 3 MB per upload and 200 MB of uploads in all, 32 calls running at once per agent, 20 calls per agent waiting
   for approval, 10 MB per result, and a 384 MB heap.
 
 The design and the reasoning behind it are in [docs/plan.md](docs/plan.md).
@@ -419,6 +436,7 @@ Everything lives in `~/Library/Application Support/Connectors/`:
 | `secrets/admin-key` | local mode: the key behind the admin sign-in cookie |
 | `secrets/ntfy-topic` | optional ntfy topic for approval pushes |
 | `state/connectors.sqlite` | call log, approvals |
+| `state/uploads/` | files agents uploaded for email attachments, deleted after a day |
 
 Logs go to `~/Library/Logs/connectors.log`.
 

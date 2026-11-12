@@ -423,6 +423,10 @@ export class UpstreamConnection {
     const script = googleServerScript();
     const env: Record<string, string> = { ...getDefaultEnvironment() };
     if (this.deps.googleApiBase) env.CONNECTORS_GOOGLE_API_BASE = this.deps.googleApiBase;
+    // Gmail attachments by uploadId: where they are, and the address the
+    // tool descriptions tell agents to upload to.
+    env.CONNECTORS_UPLOADS_DIR = this.deps.layout.uploadsDir;
+    env.CONNECTORS_UPLOAD_URL = new URL("/uploads", this.deps.publicUrl).toString();
     this.log.info(`${this.id}: starting the built-in Google server for ${config.service}`);
     return this.watchStderr(
       new StdioClientTransport({

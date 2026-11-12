@@ -30,6 +30,7 @@ import type { Gateway } from "./gateway.ts";
 import { type Logger, errorMessage, silentLogger } from "./log.ts";
 import { callerAuthInfo } from "./mcp.ts";
 import { readSecretFile, writeSecretFile } from "./secretFiles.ts";
+import { MAX_ATTACHMENT_BYTES, UploadError, readUpload, saveUpload } from "./uploads.ts";
 import { reportError } from "./sentry.ts";
 import type { Mode } from "./settings.ts";
 import { type SetupSummary, setupSteps } from "./setup.ts";
@@ -73,6 +74,8 @@ export type AppDeps = {
   allowLoopbackUpstreams?: boolean;
   // Logs one line per /mcp request (CONNECTORS_DEBUG_MCP=1).
   debugMcp?: boolean;
+  // Where POST /uploads keeps files. Without it there's no /uploads.
+  uploadsDir?: string;
   now?: () => number;
 };
 
@@ -171,7 +174,8 @@ export function contentSecurityPolicy(allowLoopback = false): string {
   // The one script is the setup checklist's poll, allowed by its hash, and
   // it only fetches from this origin.
   return (
-    `default-src 'none'; style-src 'unsafe-inline'; script-src '${SETUP_SCRIPT_HASH}'; connect-src 'self'; ` +
+    // img-src data: is for the attachments on an email's approval page.
+    `default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src '${SETUP_SCRIPT_HASH}'; connect-src 'self'; ` +
     `form-action ${formAction.join(" ")}; frame-ancestors 'none'`
   );
 }
@@ -219,17 +223,21 @@ export function createApp(deps: AppDeps): Hono<Env> {
     c.json({ ok: true, version: VERSION, release: RELEASE, upstreams: deps.manager.statuses() }),
   );
 
-  app.all("/mcp", async (c) => {
-    if (deps.closing?.()) {
-      return new Response("Restarting, try again in a moment\n", {
-        status: 503,
-        headers: { "content-type": "text/plain; charset=utf-8", "retry-after": "5" },
-      });
-    }
+  const restarting = () =>
+    new Response("Restarting, try again in a moment\n", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8", "retry-after": "5" },
+    });
+  const agentFor = (c: Context<Env>) => {
     const header = c.req.header("authorization") ?? "";
     const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
     const agentId = match ? deps.tokens.verify(match[1]!) : null;
-    const agent = agentId ? deps.gateway.agent(agentId) : undefined;
+    return agentId ? deps.gateway.agent(agentId) : undefined;
+  };
+
+  app.all("/mcp", async (c) => {
+    if (deps.closing?.()) return restarting();
+    const agent = agentFor(c);
     if (!agent) return unauthorized();
     // Recorded in the call log, never used for auth: every device on the
     // tailnet sends the same login. In local mode nothing sets it, so it
@@ -262,6 +270,49 @@ export function createApp(deps: AppDeps): Hono<Env> {
       );
     }
     return response;
+  });
+
+  // An email attachment from an agent, so it can pass an uploadId instead of
+  // typing a file out as base64 (see uploads.ts). Same token as /mcp. The
+  // body is the raw file; ?filename= and Content-Type say what it is.
+  app.post("/uploads", async (c) => {
+    if (deps.closing?.()) return restarting();
+    const agent = agentFor(c);
+    if (!agent) return unauthorized();
+    if (!deps.uploadsDir) return c.json({ error: "Uploads aren't set up on this gateway." }, 404);
+    const declared = Number(c.req.header("content-length") ?? "0");
+    const tooBig = () => c.json({ error: `An upload can be at most ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB.` }, 413);
+    if (declared > MAX_ATTACHMENT_BYTES) return tooBig();
+    // Read with a cap, since Content-Length can be missing or wrong.
+    const chunks: Buffer[] = [];
+    let size = 0;
+    if (c.req.raw.body) {
+      for await (const chunk of c.req.raw.body as unknown as AsyncIterable<Uint8Array>) {
+        size += chunk.byteLength;
+        if (size > MAX_ATTACHMENT_BYTES) return tooBig();
+        chunks.push(Buffer.from(chunk));
+      }
+    }
+    const contentType = c.req.header("content-type")?.split(";")[0]?.trim();
+    try {
+      const meta = saveUpload(
+        deps.uploadsDir,
+        Buffer.concat(chunks),
+        { filename: c.req.query("filename") || undefined, contentType: contentType || undefined, agent: agent.id },
+        now(),
+      );
+      log.info(`upload ${meta.id} from ${agent.id}: ${meta.contentType}, ${meta.size} bytes`);
+      return c.json({
+        uploadId: meta.id,
+        ...(meta.filename ? { filename: meta.filename } : {}),
+        contentType: meta.contentType,
+        size: meta.size,
+        expiresAt: new Date(meta.expiresAt).toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof UploadError) return c.json({ error: error.message }, error.status as 400);
+      throw error;
+    }
   });
 
   // Everything below is for the owner's browser only.
@@ -583,6 +634,9 @@ export function createApp(deps: AppDeps): Hono<Env> {
     return c.redirect(`/admin?flash=${flashes.put(text, false, now())}`, 303);
   });
 
+  // So a held email's approval page can show the attached screenshots.
+  const uploads = (id: string) => (deps.uploadsDir ? readUpload(deps.uploadsDir, id, now()) : undefined);
+
   app.get("/approvals/:id", (c) => {
     const record = deps.approvals.get(c.req.param("id"));
     if (!record) return htmlResponse(c, messagePage("Not found", "There's no approval with that id."), 404);
@@ -598,6 +652,7 @@ export function createApp(deps: AppDeps): Hono<Env> {
           upstreamTitle,
           csrf: csrfFor(c),
           batchCsrf: csrfFor(c)(`approvals:${waiting.map((call) => call.id).join(",")}`),
+          uploads,
         }),
       );
     }
@@ -610,6 +665,7 @@ export function createApp(deps: AppDeps): Hono<Env> {
         csrf: csrfFor(c)(`approval:${record.id}`),
         now: now(),
         tooManyToGroup: waiting.length > 1 ? waiting.length : undefined,
+        uploads,
       }),
     );
   });

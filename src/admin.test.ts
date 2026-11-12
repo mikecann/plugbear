@@ -41,6 +41,41 @@ describe("approval page arguments", () => {
     assert.match(page, /&quot;body&quot;: &quot;Hi Ana,\\n\\nSee you/);
   });
 
+  it("shows an email's HTML as written and its attachments, with pictures of the images", () => {
+    const png = Buffer.from("89504e470d0a1a0a", "hex");
+    const page = approvalPage({
+      record: record("send_message", {
+        to: ["ana@example.com"],
+        subject: "Portal",
+        body: "See below.",
+        htmlBody: '<p>See:</p><img src="cid:shot1"><script>alert(1)</script>',
+        attachments: [
+          { uploadId: "up_aaaaaaaaaaaaaaaaaaaaaa", inline: true, contentId: "shot1" },
+          { filename: "notes.txt", data: Buffer.from("hi").toString("base64") },
+          { uploadId: "up_bbbbbbbbbbbbbbbbbbbbbb" },
+        ],
+      }),
+      agentTitle: "Codex",
+      upstreamTitle: "Gmail",
+      csrf: "x",
+      now: 2_000,
+      uploads: (id) =>
+        id === "up_aaaaaaaaaaaaaaaaaaaaaa"
+          ? {
+              meta: { id, filename: "portal.png", contentType: "image/png", size: png.length, sha256: "", agent: "codex", createdAt: 0, expiresAt: 1e15 },
+              bytes: png,
+            }
+          : undefined,
+    });
+    assert.match(page, /class="card email"/);
+    // The agent's HTML is shown as text, never run.
+    assert.match(page, /<div class="text html">&lt;p&gt;See:&lt;\/p&gt;&lt;img src=&quot;cid:shot1&quot;&gt;&lt;script&gt;/);
+    assert.ok(!page.includes("<script>alert"));
+    assert.match(page, /<strong>portal.png<\/strong> <span class="muted">image\/png, 8 bytes, inline, as cid:shot1<\/span><img alt="portal.png" src="data:image\/png;base64,iVBORw0KGgo=">/);
+    assert.match(page, /<strong>notes.txt<\/strong> <span class="muted">type from the name, 2 bytes, attached<\/span><\/li>/);
+    assert.match(page, /Upload up_bbbbbbbbbbbbbbbbbbbbbb isn't here any more, so this call will fail/);
+  });
+
   it("falls back to generic rows when an email has an argument it doesn't know", () => {
     const page = render("create_draft", { to: ["ana@example.com"], body: "hi", attachment: { name: "x" } });
     assert.ok(!page.includes('class="card email"'));

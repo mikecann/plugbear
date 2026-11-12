@@ -32,6 +32,8 @@ export type FakeGoogle = {
   // What Sam "ticks" on the consent screen; all asked scopes by default.
   grantOnly?: string[];
   drafts: { raw: string; threadId?: string }[];
+  // PUT drafts/<id> bodies, in order.
+  draftUpdates: { id: string; body: { id?: string; message: { raw: string; threadId?: string } } }[];
   sent: { raw: string; threadId?: string }[];
   events: Map<string, Event>;
   eventQueries: URLSearchParams[];
@@ -109,6 +111,7 @@ export async function startFakeGoogle(): Promise<FakeGoogle> {
     endpoints: { authorize: "", token: "" },
     stats: { codeExchanges: 0, refreshes: 0, failedRefreshes: 0, apiCalls: 0, unauthorized: 0 },
     drafts: [],
+    draftUpdates: [],
     sent: [],
     events: new Map([
       ["e1", { id: "e1", summary: "Focus", start: { dateTime: "2026-11-02T09:00:00+00:00" }, end: { dateTime: "2026-11-02T10:00:00+00:00" } }],
@@ -207,6 +210,27 @@ export async function startFakeGoogle(): Promise<FakeGoogle> {
       const body = JSON.parse(await readText(req)) as { message: { raw: string; threadId?: string } };
       fake.drafts.push(body.message);
       return json(res, 200, { id: `d${fake.drafts.length}`, message: { id: "dm1", threadId: body.message.threadId ?? "t9" } });
+    }
+    if ((match = /^\/gmail\/v1\/users\/me\/drafts\/([^/]+)$/.exec(path))) {
+      // Draft d1 replies in thread t1; any other id doesn't exist.
+      if (match[1] !== "d1") return json(res, 404, { error: { code: 404, message: "Requested entity was not found." } });
+      const message = {
+        id: "dm1",
+        threadId: "t1",
+        payload: {
+          headers: [
+            { name: "Subject", value: "Re: Lunch" },
+            { name: "In-Reply-To", value: "<m1@example.com>" },
+            { name: "References", value: "<m1@example.com>" },
+          ],
+        },
+      };
+      if (method === "GET") return json(res, 200, { id: "d1", message });
+      if (method === "PUT") {
+        const body = JSON.parse(await readText(req)) as { id?: string; message: { raw: string; threadId?: string } };
+        fake.draftUpdates.push({ id: match[1]!, body });
+        return json(res, 200, { id: "d1", message: { id: "dm2", threadId: body.message.threadId ?? "t9" } });
+      }
     }
     if (path === "/gmail/v1/users/me/messages/send" && method === "POST") {
       const body = JSON.parse(await readText(req)) as { raw: string; threadId?: string };
