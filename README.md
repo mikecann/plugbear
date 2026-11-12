@@ -415,7 +415,7 @@ What it is careful about:
   anywhere are refused, since a JavaScript upstream could turn one into
   values you never saw.
 - Limits, so one runaway agent can't take the gateway down: 1 MB per
-  request, 3 MB per upload and 200 MB of uploads in all, 32 calls running at once per agent, 20 calls per agent waiting
+  request, 3 MB per upload and 500 uploads or 200 MB in all, 32 calls running at once per agent, 20 calls per agent waiting
   for approval, 10 MB per result, and a 384 MB heap.
 
 The design and the reasoning behind it are in [docs/plan.md](docs/plan.md).

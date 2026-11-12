@@ -331,7 +331,7 @@ this app" screen, which stays, since it's the owner's own unverified app.
   as base64 costs an agent a token per few characters, and the gateway is
   usually on another machine, so it can't read the agent's file path. So
   `POST /uploads` takes the raw bytes with the same bearer token as `/mcp`
-  (3 MB each, 200 MB in all, a day each) into `state/uploads/`, and the
+  (3 MB each, 500 or 200 MB in all, a day each) into `state/uploads/`, and the
   Gmail server reads them by id (`CONNECTORS_UPLOADS_DIR`, ids checked
   against `up_` and 22 base64url characters, so never a path). Inline
   attachments must be used by a `cid:` in the HTML and every `cid:` must

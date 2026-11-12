@@ -17,6 +17,12 @@ export const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 export const UPLOAD_TTL_MS = 26 * 60 * 60 * 1000;
 // All uploads together, so a loop can't fill the disk.
 export const MAX_UPLOADS_TOTAL_BYTES = 200 * 1024 * 1024;
+// And how many, since every upload sweeps the folder synchronously: this
+// keeps that sweep to a few hundred small reads however tiny the files are.
+export const MAX_UPLOADS = 500;
+// How often a save re-reads the folder instead of trusting the tally.
+const RESWEEP_MS = 60_000;
+const tallies = new Map<string, { bytes: number; count: number; sweptAt: number }>();
 
 const ID = /^up_[A-Za-z0-9_-]{22}$/;
 // A type/subtype, nothing a header could be built from.
@@ -63,26 +69,29 @@ function ensureDir(dir: string): void {
   chmodSync(dir, 0o700);
 }
 
-/** Deletes expired uploads (and any half-written pair). Returns the bytes still kept. */
-export function sweepUploads(dir: string, now: number): number {
-  let kept = 0;
+/** Deletes expired uploads (and any half-written pair). Returns what's still kept. */
+export function sweepUploads(dir: string, now: number): { bytes: number; count: number } {
+  const kept = { bytes: 0, count: 0 };
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
-    return 0;
+    return kept;
   }
+  const present = new Set(names);
   for (const name of names) {
     const match = /^(up_[A-Za-z0-9_-]{22})\.json$/.exec(name);
     if (!match) continue;
     const meta = readMeta(dir, match[1]!);
-    if (meta && meta.expiresAt > now) kept += meta.size;
-    else removeUpload(dir, match[1]!);
+    if (meta && meta.expiresAt > now) {
+      kept.bytes += meta.size;
+      kept.count += 1;
+    } else removeUpload(dir, match[1]!);
   }
   // A .bin without its .json is from a write that didn't finish.
   for (const name of names) {
     const match = /^(up_[A-Za-z0-9_-]{22})\.bin$/.exec(name);
-    if (match && !names.includes(`${match[1]}.json`)) rmSync(join(dir, name), { force: true });
+    if (match && !present.has(`${match[1]}.json`)) rmSync(join(dir, name), { force: true });
   }
   return kept;
 }
@@ -118,8 +127,15 @@ export function saveUpload(
   const contentType = info.contentType?.toLowerCase() || "application/octet-stream";
   if (!contentTypeOk(contentType)) throw new UploadError(400, "Content-Type must be a plain type/subtype, like image/png.");
   ensureDir(dir);
-  if (sweepUploads(dir, now) + bytes.length > MAX_UPLOADS_TOTAL_BYTES) {
-    throw new UploadError(507, "There are too many uploads waiting. Try again tomorrow, when older ones have gone.");
+  // The gateway is the only writer, so it keeps a running tally and only
+  // re-reads the folder now and then, keeping a save cheap at any count.
+  let tally = tallies.get(dir);
+  if (!tally || now - tally.sweptAt >= RESWEEP_MS || now < tally.sweptAt) {
+    tally = { ...sweepUploads(dir, now), sweptAt: now };
+    tallies.set(dir, tally);
+  }
+  if (tally.count >= MAX_UPLOADS || tally.bytes + bytes.length > MAX_UPLOADS_TOTAL_BYTES) {
+    throw new UploadError(507, "There are too many uploads waiting (over 500, or 200 MB). Try again tomorrow, when older ones have gone.");
   }
   const id = `up_${randomBytes(16).toString("base64url")}`;
   const meta: UploadMeta = {
@@ -135,6 +151,8 @@ export function saveUpload(
   // The bytes first: an upload only exists once its .json does.
   writeFileSync(join(dir, `${id}.bin`), bytes, { mode: 0o600 });
   writeFileSync(join(dir, `${id}.json`), JSON.stringify(meta), { mode: 0o600 });
+  tally.count += 1;
+  tally.bytes += bytes.length;
   return meta;
 }
 

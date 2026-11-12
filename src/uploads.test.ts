@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   MAX_ATTACHMENT_BYTES,
+  MAX_UPLOADS,
   UPLOAD_TTL_MS,
   UploadError,
   readUpload,
@@ -31,7 +32,7 @@ describe("uploads", () => {
     assert.equal(statSync(join(dir, `${meta.id}.bin`)).mode & 0o777, 0o600);
     assert.equal(readUpload(dir, meta.id, 2_000)!.bytes.toString(), "hello");
     assert.equal(readUpload(dir, meta.id, 1_000 + UPLOAD_TTL_MS), undefined);
-    assert.equal(sweepUploads(dir, 1_000 + UPLOAD_TTL_MS), 0);
+    assert.deepEqual(sweepUploads(dir, 1_000 + UPLOAD_TTL_MS), { bytes: 0, count: 0 });
     assert.deepEqual(readdirSync(dir), []);
   });
 
@@ -55,10 +56,17 @@ describe("uploads", () => {
     assert.equal(code(() => saveUpload(dir, Buffer.from("x"), { agent: "a", contentType: "text/html\r\nX: y" }, 0)), 400);
   });
 
+  it("caps how many uploads wait, however small, so each upload's sweep stays short", () => {
+    for (let i = 0; i < MAX_UPLOADS; i++) saveUpload(dir, Buffer.from("x"), { agent: "a" }, 0);
+    assert.throws(() => saveUpload(dir, Buffer.from("x"), { agent: "a" }, 1), (error: UploadError) => error.status === 507);
+    // Once they expire there's room again.
+    assert.ok(saveUpload(dir, Buffer.from("x"), { agent: "a" }, UPLOAD_TTL_MS + 1));
+  });
+
   it("drops a half-written upload", () => {
     saveUpload(dir, Buffer.from("x"), { agent: "a" }, 0);
     writeFileSync(join(dir, "up_aaaaaaaaaaaaaaaaaaaaaa.bin"), "partial");
-    assert.equal(sweepUploads(dir, 1), 1);
+    assert.deepEqual(sweepUploads(dir, 1), { bytes: 1, count: 1 });
     assert.equal(readdirSync(dir).length, 2);
   });
 });
