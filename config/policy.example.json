@@ -10,6 +10,9 @@
     { "tool": "*__*share*", "action": "ask" },
     { "tool": "*__*permission*", "action": "ask" },
     { "tool": "*__*invite*", "action": "ask" },
-    { "tool": "gcal__*event*", "ifArgs": ["attendees"], "action": "ask" }
+    { "tool": "gcal__*event*", "ifArgs": ["attendees"], "action": "ask" },
+    { "tool": "linear__save_*comment", "action": "ask" },
+    { "tool": "linear__save_status_update", "action": "ask" },
+    { "tool": "linear__merge_diff", "action": "ask" }
   ]
 }

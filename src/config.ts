@@ -133,6 +133,14 @@ export const policySchema = z.strictObject({
 
 export type Policy = z.infer<typeof policySchema>;
 
+// An install's policy.json can say "extends": "example" to keep the shipped
+// rules and add its own, rather than copying the example and drifting from
+// it as new defaults ship.
+const ownPolicySchema = policySchema.extend({
+  extends: z.literal("example").optional(),
+  default: actionSchema.optional(),
+});
+
 export type Config = {
   upstreams: UpstreamConfig[];
   agents: AgentConfig[];
@@ -246,6 +254,27 @@ export function loadConfig(
   return {
     upstreams: parseUpstreams(readJson(upstreamsFile), options, upstreamsFile),
     agents: parseAgents(readJson(agentsFile), agentsFile),
-    policy: parsePolicy(readJson(policyFile), policyFile),
+    policy: loadPolicy(dirs, policyFile),
+  };
+}
+
+/**
+ * The policy in force. With "extends": "example", the install's own rules
+ * come first (the first matching rule wins), then the shipped example's,
+ * and its "default" applies only when it sets one.
+ */
+function loadPolicy(dirs: ConfigDirs, file: string): Policy {
+  const raw = readJson(file);
+  const result = ownPolicySchema.safeParse(raw);
+  if (!result.success) fail(file, result.error);
+  const own = result.data;
+  if (own.extends !== "example") {
+    return { default: own.default ?? "allow", rules: own.rules };
+  }
+  const exampleFile = join(dirs.examplesDir, "policy.example.json");
+  const example = parsePolicy(readJson(exampleFile), exampleFile);
+  return {
+    default: own.default ?? example.default,
+    rules: [...own.rules, ...example.rules],
   };
 }

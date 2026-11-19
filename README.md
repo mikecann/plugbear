@@ -261,7 +261,8 @@ or tailnet addresses, even after a redirect.
 change it) decides per tool: `allow`, `ask` or `deny`. First matching rule
 wins, then `default`. The example asks before anything that sends, replies,
 forwards, posts a message, deletes, trashes, shares, changes permissions or
-invites, and before a calendar event with guests:
+invites, before a calendar event with guests, and before Linear comments,
+status updates and diff merges:
 
 ```json
 { "tool": "gcal__*event*", "ifArgs": ["attendees"], "action": "ask" }
@@ -270,6 +271,18 @@ invites, and before a calendar event with guests:
 Rules match `<prefix>__<tool>` with the service's own tool name, and can be
 limited with `agents`, `upstreams`, or `ifArgs` (only when one of those
 arguments is set and not empty).
+
+To keep the shipped rules and add your own, start `policy.json` with
+`"extends": "example"`. Your rules go ahead of the example's, so they win,
+and new defaults reach you when you update. Without it, `policy.json`
+replaces the example entirely.
+
+```json
+{
+  "extends": "example",
+  "rules": [{ "tool": "linear__save_issue", "action": "ask" }]
+}
+```
 
 A tool that `deny` refuses whatever the arguments is also left out of the
 agents' tool lists, so it costs their models no context and can't be picked
