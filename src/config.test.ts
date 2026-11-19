@@ -46,7 +46,7 @@ describe("shipped examples", () => {
 
   it("starts with the default policy", () => {
     assert.equal(config.policy.default, "allow");
-    assert.equal(config.policy.rules.length, 10);
+    assert.equal(config.policy.rules.length, 13);
   });
 });
 
@@ -69,7 +69,42 @@ describe("config files", () => {
     );
     assert.equal(config.agents[0]!.client?.configDir, "~/.claude-work");
     assert.equal(config.upstreams.length, 6);
-    assert.equal(config.policy.rules.length, 10);
+    assert.equal(config.policy.rules.length, 13);
+  });
+
+  it("adds an install's own rules ahead of the example's with \"extends\": \"example\"", () => {
+    const configDir = emptyConfigDir();
+    writeFileSync(
+      join(configDir, "policy.json"),
+      JSON.stringify({ extends: "example", rules: [{ tool: "studio__save_*", action: "ask" }] }),
+    );
+    const { policy } = loadConfig({ configDir, examplesDir });
+    assert.equal(policy.default, "allow");
+    assert.equal(policy.rules.length, 14);
+    assert.deepEqual(policy.rules[0], { tool: "studio__save_*", action: "ask" });
+    assert.equal(policy.rules[1]!.tool, "*__*send*");
+  });
+
+  it("keeps an install's own default when it extends the example", () => {
+    const configDir = emptyConfigDir();
+    writeFileSync(join(configDir, "policy.json"), JSON.stringify({ extends: "example", default: "ask" }));
+    const { policy } = loadConfig({ configDir, examplesDir });
+    assert.equal(policy.default, "ask");
+    assert.equal(policy.rules.length, 13);
+  });
+
+  it("replaces the example when policy.json doesn't extend it", () => {
+    const configDir = emptyConfigDir();
+    writeFileSync(join(configDir, "policy.json"), JSON.stringify({ rules: [{ tool: "studio__*", action: "deny" }] }));
+    const { policy } = loadConfig({ configDir, examplesDir });
+    assert.equal(policy.default, "allow");
+    assert.deepEqual(policy.rules, [{ tool: "studio__*", action: "deny" }]);
+  });
+
+  it("refuses an extends it doesn't know", () => {
+    const configDir = emptyConfigDir();
+    writeFileSync(join(configDir, "policy.json"), JSON.stringify({ extends: "strict" }));
+    assert.throws(() => loadConfig({ configDir, examplesDir }), /policy\.json is not valid/);
   });
 
   it("names the file that's wrong", () => {
