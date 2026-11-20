@@ -22,7 +22,24 @@ if [[ $# -eq 0 || $1 == -h || $1 == --help ]]; then
   exit 0
 fi
 
-command -v codex >/dev/null || { print -u2 "slack-read: codex isn't installed"; exit 1; }
+# A global Codex install can come out with the launcher but no binary: on
+# 20 Nov 2026 `npm install -g @openai/codex@latest` ran a second before that
+# release's codex-darwin-arm64 was published, npm skipped the optional package
+# without a word, and every codex run died at once. So check it starts, say
+# how to fix it, and use Threadbear's own copy (checked before it's activated)
+# until it's fixed.
+codex_bin=codex
+if ! codex --version >/dev/null 2>&1; then
+  print -u2 "slack-read: the codex on PATH ($(command -v codex || echo none)) doesn't start: $(codex --version 2>&1 | grep -m1 -v '^ *at ')"
+  print -u2 "  Fix: npm install -g @openai/codex@latest, then check codex --version."
+  tb_codex="$HOME/Library/Application Support/Threadbear/tools/codex/current/node_modules/.bin/codex"
+  if "$tb_codex" --version >/dev/null 2>&1; then
+    print -u2 "  Using Threadbear's copy until then."
+    codex_bin=$tb_codex
+  else
+    exit 1
+  fi
+fi
 
 # Codex names its Slack app by an id that differs per install, so find it in
 # Codex's cached app tool list rather than hard-coding it.
@@ -67,7 +84,7 @@ EOF
 # -k: a Codex that ignores SIGTERM is SIGKILLed 10 s later, rather than running
 # on past the limit (seen in a review, 6 Nov). This timeout puts Codex in its
 # own process group, so a caller's own timeout can't reach it: only this can.
-timeout -k 10 ${SLACK_READ_TIMEOUT:-300} codex exec \
+timeout -k 10 ${SLACK_READ_TIMEOUT:-300} "$codex_bin" exec \
   -s read-only --skip-git-repo-check -C $work \
   -c 'model_reasoning_effort="low"' \
   -c 'apps._default.default_tools_approval_mode="auto"' \
