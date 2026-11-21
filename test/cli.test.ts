@@ -105,7 +105,7 @@ describe("connectors CLI", () => {
     };
     const grok = data.agents.find((agent) => agent.id === "grok")!;
     assert.equal(grok.hasToken, true);
-    assert.deepEqual(grok.upstreams, ["notion", "deepwiki", "sentry", "cloudflare", "gmail", "gcal"]);
+    assert.deepEqual(grok.upstreams, ["notion", "deepwiki", "sentry", "cloudflare", "gmail", "gcal", "firecrawl", "exa", "contextdev"]);
     assert.deepEqual(grok.client, { type: "grok" });
     assert.equal(data.agents.find((agent) => agent.id === "muse")?.client, null);
     assert.equal(data.agents.find((agent) => agent.id === "codex")?.hasToken, false);

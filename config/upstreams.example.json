@@ -50,5 +50,32 @@
     "service": "calendar",
     "account": "google",
     "enabled": false
+  },
+  {
+    "id": "firecrawl",
+    "title": "Firecrawl",
+    "prefix": "firecrawl",
+    "type": "http",
+    "url": "https://mcp.firecrawl.dev/v2/mcp-oauth",
+    "auth": { "type": "oauth" },
+    "enabled": false
+  },
+  {
+    "id": "exa",
+    "title": "Exa",
+    "prefix": "exa",
+    "type": "http",
+    "url": "https://mcp.exa.ai/mcp?login",
+    "auth": { "type": "oauth" },
+    "enabled": false
+  },
+  {
+    "id": "contextdev",
+    "title": "Context.dev",
+    "prefix": "contextdev",
+    "type": "http",
+    "url": "https://mcp.context.dev/mcp",
+    "auth": { "type": "oauth" },
+    "enabled": false
   }
 ]
