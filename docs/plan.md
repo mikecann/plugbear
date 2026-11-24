@@ -352,6 +352,9 @@ this app" screen, which stays, since it's the owner's own unverified app.
 ## Policy and approvals
 
 `config/policy.json`: ordered rules, first match wins, then `default`.
+With `"extends": "example"`, the install's rules come first and the shipped
+example's follow, and the example's `default` applies unless the install
+sets its own.
 
 ```json
 {
@@ -366,7 +369,10 @@ this app" screen, which stays, since it's the owner's own unverified app.
     { "tool": "*__*share*", "action": "ask" },
     { "tool": "*__*permission*", "action": "ask" },
     { "tool": "*__*invite*", "action": "ask" },
-    { "tool": "gcal__*event*", "ifArgs": ["attendees"], "action": "ask" }
+    { "tool": "gcal__*event*", "ifArgs": ["attendees"], "action": "ask" },
+    { "tool": "linear__save_*comment", "action": "ask" },
+    { "tool": "linear__save_status_update", "action": "ask" },
+    { "tool": "linear__merge_diff", "action": "ask" }
   ]
 }
 ```

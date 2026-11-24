@@ -44,6 +44,10 @@ describe("default policy", () => {
       "drive__share_file",
       "drive__update_permissions",
       "cal__invite_guest",
+      "linear__save_comment",
+      "linear__save_diff_comment",
+      "linear__save_status_update",
+      "linear__merge_diff",
     ]) {
       assert.equal(action(defaults, tool), "ask", tool);
     }
@@ -57,6 +61,9 @@ describe("default policy", () => {
       "notioncx__notion-fetch",
       "sentry__search_issues",
       "deepwiki__ask_question",
+      "linear__save_issue",
+      "linear__save_document",
+      "linear__list_comments",
     ]) {
       assert.equal(action(defaults, tool), "allow", tool);
     }
