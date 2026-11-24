@@ -19,7 +19,8 @@ import {
   withQuery,
 } from "./api.ts";
 
-type EventTime = { date?: string; dateTime?: string; timeZone?: string };
+// null only in a PATCH body, where it clears the field.
+type EventTime = { date?: string | null; dateTime?: string | null; timeZone?: string | null };
 type Attendee = { email?: string; responseStatus?: string; optional?: boolean; self?: boolean; resource?: boolean; organizer?: boolean };
 type CalendarEvent = {
   id: string;
@@ -83,6 +84,15 @@ export function eventTime(value: string, key: string, timeZone?: string): EventT
   return { dateTime: value, ...(timeZone ? { timeZone } : {}) };
 }
 
+/**
+ * A PATCH merges start and end field by field, so switching between all day
+ * and a time has to clear the other kind, or Google sees both date and
+ * dateTime and answers "Invalid start time".
+ */
+function patchTime(time: EventTime): EventTime {
+  return time.date ? { date: time.date, dateTime: null, timeZone: null } : { ...time, date: null };
+}
+
 /** Guests other than the calendar's owner and rooms. */
 function guests(event: CalendarEvent): string[] {
   return (event.attendees ?? [])
@@ -124,8 +134,12 @@ function eventBody(args: Record<string, unknown>, requireTimes: boolean): Partia
   if (description !== undefined) body.description = description;
   const location = optString(args, "location");
   if (location !== undefined) body.location = location;
-  if (start) body.start = eventTime(start, "start", timeZone);
-  if (end) body.end = eventTime(end, "end", timeZone);
+  const time = (value: string, key: string) => {
+    const parsed = eventTime(value, key, timeZone);
+    return requireTimes ? parsed : patchTime(parsed);
+  };
+  if (start) body.start = time(start, "start");
+  if (end) body.end = time(end, "end");
   if (attendees) body.attendees = attendees.map((email) => ({ email }));
   return body;
 }

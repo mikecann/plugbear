@@ -15,11 +15,12 @@ function b64(text: string): string {
   return Buffer.from(text).toString("base64url");
 }
 
+type EventTime = { dateTime?: string | null; date?: string | null; timeZone?: string | null };
 type Event = {
   id: string;
   summary?: string;
-  start?: { dateTime?: string; date?: string };
-  end?: { dateTime?: string; date?: string };
+  start?: EventTime;
+  end?: EventTime;
   attendees?: { email: string; self?: boolean; responseStatus?: string }[];
   description?: string;
 };
@@ -256,7 +257,16 @@ export async function startFakeGoogle(): Promise<FakeGoogle> {
       if (method === "PATCH") {
         const body = JSON.parse(await readText(req)) as Partial<Event>;
         fake.patches.push({ id: event.id, body, sendUpdates: url.searchParams.get("sendUpdates") });
-        Object.assign(event, body);
+        // Like Google: start and end merge field by field, and null clears a field.
+        const merged: Event = { ...event, ...body, id: event.id };
+        for (const key of ["start", "end"] as const) {
+          if (!body[key]) continue;
+          const time = { ...event[key], ...body[key] };
+          for (const field of ["date", "dateTime", "timeZone"] as const) if (time[field] === null) delete time[field];
+          if (time.date && time.dateTime) return json(res, 400, { error: { code: 400, message: `Invalid ${key} time.` } });
+          merged[key] = time;
+        }
+        Object.assign(event, merged);
       }
       return json(res, 200, event);
     }

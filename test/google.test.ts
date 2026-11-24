@@ -363,6 +363,30 @@ describe("Gmail and Google Calendar", () => {
     await client.close();
   });
 
+  it("switches an event between all day and a time, both ways", async () => {
+    const client = await legacyClient(gateway, "codex");
+    const created = await client.callTool({
+      name: "gcal__create_event",
+      arguments: { summary: "Errands", start: "2026-11-26", end: "2026-11-27" },
+    });
+    const eventId = JSON.parse(textOf(created)).eventId as string;
+
+    const timed = await client.callTool({
+      name: "gcal__update_event",
+      arguments: { eventId, start: "2026-11-26T16:00:00+08:00", end: "2026-11-26T18:00:00+08:00", timeZone: "Australia/Perth" },
+    });
+    assert.equal(timed.isError, undefined, textOf(timed));
+    assert.deepEqual(google.events.get(eventId)!.start, { dateTime: "2026-11-26T16:00:00+08:00", timeZone: "Australia/Perth" });
+    assert.deepEqual(google.events.get(eventId)!.end, { dateTime: "2026-11-26T18:00:00+08:00", timeZone: "Australia/Perth" });
+
+    const allDay = await client.callTool({ name: "gcal__update_event", arguments: { eventId, start: "2026-11-27", end: "2026-11-28" } });
+    assert.equal(allDay.isError, undefined, textOf(allDay));
+    assert.deepEqual(google.events.get(eventId)!.start, { date: "2026-11-27" });
+    assert.deepEqual(google.events.get(eventId)!.end, { date: "2026-11-28" });
+    assert.equal(JSON.parse(textOf(allDay)).allDay, true);
+    await client.close();
+  });
+
   it("refreshes the access token when it expires or Google refuses it", async () => {
     const client = await legacyClient(gateway, "codex");
     const before = google.stats.refreshes;
