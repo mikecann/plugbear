@@ -224,9 +224,13 @@ cd ~/Library/Application\ Support/Connectors
 cp app/config/upstreams.example.json config/upstreams.json
 ```
 
-The example has Notion and DeepWiki on, and Sentry, Cloudflare, Gmail and
-Google Calendar with `"enabled": false`; set `enabled` to `true` (or remove
-it) to turn one on. A service with standard MCP sign-in (OAuth with dynamic
+The example has Notion and DeepWiki on, and Sentry, Cloudflare, Gmail,
+Google Calendar, Firecrawl, Exa and Context.dev with `"enabled": false`; set
+`enabled` to `true` (or remove it) to turn one on. The last three are for
+web research: Firecrawl searches and returns each page as markdown in one
+call, Exa searches, fetches and answers with sources, and Context.dev looks
+up companies and brands and scrapes pages. Each signs in with your own
+account, so searches use your plan and your limits. A service with standard MCP sign-in (OAuth with dynamic
 client registration) needs nothing else:
 
 ```json

@@ -27,6 +27,9 @@ describe("shipped examples", () => {
         ["cloudflare", "cf", false],
         ["gmail", "gmail", false],
         ["gcal", "gcal", false],
+        ["firecrawl", "firecrawl", false],
+        ["exa", "exa", false],
+        ["contextdev", "contextdev", false],
       ],
     );
   });
@@ -68,7 +71,7 @@ describe("config files", () => {
       ["sam-laptop"],
     );
     assert.equal(config.agents[0]!.client?.configDir, "~/.claude-work");
-    assert.equal(config.upstreams.length, 6);
+    assert.equal(config.upstreams.length, 9);
     assert.equal(config.policy.rules.length, 10);
   });
 
